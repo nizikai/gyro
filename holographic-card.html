@@ -248,29 +248,30 @@
             opacity: ${this._opacity};
             mix-blend-mode: color-dodge;
             pointer-events: none;
-            /* Layered linear gradients produce a rainbow foil across the full surface.
-               The hue-rotate filter (driven by --holo-angle) cycles all colors as the
-               card tilts, giving the characteristic "all hues visible, shifting" look.
-               This approach is fully compatible with iOS Safari 14+. */
+            /* Pearlescent foil: muted pastel hues that shift with tilt angle.
+               Low saturation (40-55%) and high lightness keep it elegant rather
+               than garish. The hue-rotate filter adds a second layer of color
+               cycling so the same tilt never looks identical across a full rotation.
+               Compatible with iOS Safari 14+. */
             background:
               linear-gradient(
                 calc(var(--holo-angle) * 1deg),
-                hsl(0,   100%, 55%) 0%,
-                hsl(60,  100%, 55%) 20%,
-                hsl(120, 100%, 55%) 40%,
-                hsl(180, 100%, 55%) 60%,
-                hsl(240, 100%, 55%) 80%,
-                hsl(300, 100%, 55%) 100%
+                hsl(0,   45%, 72%) 0%,
+                hsl(60,  40%, 78%) 20%,
+                hsl(180, 50%, 74%) 40%,
+                hsl(220, 55%, 70%) 60%,
+                hsl(280, 45%, 72%) 80%,
+                hsl(320, 40%, 74%) 100%
               ),
               linear-gradient(
-                calc(var(--holo-angle) * 1deg + 90deg),
-                transparent 30%,
-                rgba(255,255,255,0.18) 50%,
-                transparent 70%
+                calc(var(--holo-angle) * 1deg + 60deg),
+                transparent 25%,
+                rgba(255,255,255,0.12) 50%,
+                transparent 75%
               );
             filter: hue-rotate(calc(var(--holo-angle) * 1deg))
-                    saturate(1.5)
-                    brightness(1.1);
+                    saturate(1.2)
+                    brightness(1.05);
           }
 
           /* Requirement 7.6, 10.1 — freeze foil at neutral state when the user
@@ -409,6 +410,11 @@
         // Bind the handler once so the same reference can be removed in stop().
         this._boundHandler = this._onDeviceOrientation.bind(this);
         this._fallbackTimer = null;
+        // Baseline angles captured from the first event so we measure relative
+        // movement rather than absolute angles. This fixes the dead-zone problem
+        // where holding the phone upright puts beta near 90°, far outside ±45°.
+        this._baseBeta  = null;
+        this._baseGamma = null;
       }
 
       /**
@@ -461,10 +467,19 @@
           this._fallbackTimer = null;
         }
 
+        // Capture baseline on the first event so all subsequent readings are
+        // relative deltas. This means "however you're holding the phone right now"
+        // is the neutral {0,0} position, giving full ±45° range in every direction
+        // regardless of the phone's absolute orientation.
+        if (this._baseBeta === null) {
+          this._baseBeta  = e.beta  ?? 0;
+          this._baseGamma = e.gamma ?? 0;
+        }
+
         const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-        const x = clamp(e.gamma, -45, 45) / 45;
-        const y = clamp(e.beta,  -45, 45) / 45;
+        const x = clamp((e.gamma ?? 0) - this._baseGamma, -45, 45) / 45;
+        const y = clamp((e.beta  ?? 0) - this._baseBeta,  -45, 45) / 45;
 
         this._onTilt({ x, y });
       }

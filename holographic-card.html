@@ -32,7 +32,7 @@
 
     /* Card wrapper — provides 3D perspective context */
     .card-wrapper {
-      perspective: 800px;
+      perspective: 900px;
     }
 
     /* Card — standard business card dimensions */
@@ -41,49 +41,66 @@
       height: 216px;
       border-radius: 12px;
       position: relative;
-      overflow: hidden;
+      overflow: visible; /* allow rim light pseudo-element to show */
       will-change: transform;
       background-color: #1a1a2e;
 
-      /* CSS custom properties — single source of truth for the rendering layer.
-         JavaScript writes these; CSS calc() expressions consume them.
-         Requirements: 4.1, 4.2, 4.3, 4.4, 7.2 */
-
-      /* Normalized tilt axes [-1, 1] */
+      /* CSS custom properties — single source of truth for the rendering layer */
       --tilt-x: 0;
       --tilt-y: 0;
-
-      /* Holographic foil gradient controls */
-      --holo-angle: 180;  /* degrees, 0–360 */
-      --holo-x: 50;       /* %, 0–100 */
-      --holo-y: 50;       /* %, 0–100 */
-
-      /* Specular highlight position */
-      --spec-x: 50;       /* %, 0–100 */
-      --spec-y: 50;       /* %, 0–100 */
-
-      /* 3D tilt in degrees [-12, 12] */
+      --holo-angle: 180;
+      --holo-x: 50;
+      --holo-y: 50;
+      --spec-x: 50;
+      --spec-y: 50;
       --tilt-deg-x: 0;
       --tilt-deg-y: 0;
-
-      /* Drop shadow offset in px [-20, 20] */
       --shadow-x: 0;
       --shadow-y: 0;
 
-      /* 3D tilt transform — rotateX = pitch (tilt-deg-x), rotateY = yaw (tilt-deg-y)
-         Requirement 4.1, 4.2 */
       transform-style: preserve-3d;
       transform: rotateX(calc(var(--tilt-deg-x) * 1deg))
                  rotateY(calc(var(--tilt-deg-y) * 1deg));
 
-      /* Drop shadow shifts opposite to tilt direction — reinforces 3D depth illusion
-         Requirement 4.3 */
-      box-shadow: calc(var(--shadow-x) * 1px)
-                  calc(var(--shadow-y) * 1px)
-                  40px rgba(0, 0, 0, 0.6);
+      box-shadow:
+        calc(var(--shadow-x) * 1px) calc(var(--shadow-y) * 1px) 48px rgba(0,0,0,0.7),
+        calc(var(--shadow-x) * 0.4px) calc(var(--shadow-y) * 0.4px) 16px rgba(0,0,0,0.5);
 
-      /* rAF drives animation, not CSS transitions — Requirement 7.2 */
       transition: none;
+    }
+
+    /* Clip the inner content layers while letting the rim glow overflow */
+    .card-inner-clip {
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    /* Rim light — a border glow that shifts with tilt to simulate a light source
+       catching the card edge. Uses a conic-gradient border trick. */
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 13px;
+      padding: 1px;
+      background: conic-gradient(
+        from calc((var(--holo-angle) - 90) * 1deg),
+        rgba(255,255,255,0.0)  0%,
+        rgba(255,255,255,0.55) 20%,
+        rgba(180,200,255,0.35) 35%,
+        rgba(255,255,255,0.0)  50%,
+        rgba(255,255,255,0.0)  100%
+      );
+      -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: 5;
     }
   </style>
 </head>
@@ -121,9 +138,14 @@
           'Holographic business card for Nico Prasetyo, Founder at Nizi Labs'
         );
 
-        // Content container — positioned at z-index 1 within the card's
-        // position:relative context, so it sits above the dark background
-        // but below the holographic overlay layers.
+        // Inner clip container — clips the overlay layers while the card's own
+        // overflow is visible so the rim-light ::before can show outside the border.
+        const clip = document.createElement('div');
+        clip.className = 'card-inner-clip';
+        this._card.appendChild(clip);
+        this._clip = clip;
+
+        // Content container
         const container = document.createElement('div');
         container.style.cssText = [
           'position: absolute',
@@ -181,8 +203,8 @@
         container.appendChild(titleEl);
         container.appendChild(companyEl);
 
-        this._card.appendChild(container);
-        this._nodes.push(container);
+        this._clip.appendChild(container);
+        this._nodes.push(clip);
       }
 
       /**
@@ -217,7 +239,7 @@
        */
       constructor(cardElement, options) {
         this._card = cardElement;
-        this._opacity = (options && options.opacity != null) ? options.opacity : 0.65;
+        this._opacity = (options && options.opacity != null) ? options.opacity : 0.55;
         this._el = null;
         this._styleEl = null;
       }
@@ -248,34 +270,34 @@
             opacity: ${this._opacity};
             mix-blend-mode: color-dodge;
             pointer-events: none;
-            /* Pearlescent foil: muted pastel hues that shift with tilt angle.
-               Low saturation (40-55%) and high lightness keep it elegant rather
-               than garish. The hue-rotate filter adds a second layer of color
-               cycling so the same tilt never looks identical across a full rotation.
-               Compatible with iOS Safari 14+. */
+            /*
+             * Pearl / iridescent foil — inspired by real holographic card stock.
+             * Uses silver-toned base hues (blue-grey, lavender, rose-gold, mint)
+             * at moderate saturation so it reads as light-shift rather than rainbow.
+             * The holo-angle sweeps only ~90° of hue-rotate across the full tilt
+             * range (controlled in _writeCSSVars), so a small tilt produces a
+             * noticeable but not garish color shift.
+             */
             background:
               linear-gradient(
                 calc(var(--holo-angle) * 1deg),
-                hsl(0,   45%, 72%) 0%,
-                hsl(60,  40%, 78%) 20%,
-                hsl(180, 50%, 74%) 40%,
-                hsl(220, 55%, 70%) 60%,
-                hsl(280, 45%, 72%) 80%,
-                hsl(320, 40%, 74%) 100%
+                hsl(210, 30%, 80%)  0%,
+                hsl(260, 35%, 82%) 25%,
+                hsl(320, 28%, 84%) 50%,
+                hsl(170, 32%, 80%) 75%,
+                hsl(210, 30%, 80%) 100%
               ),
               linear-gradient(
-                calc(var(--holo-angle) * 1deg + 60deg),
-                transparent 25%,
-                rgba(255,255,255,0.12) 50%,
-                transparent 75%
+                calc(var(--holo-angle) * 1deg + 45deg),
+                transparent 20%,
+                rgba(255,255,255,0.10) 50%,
+                transparent 80%
               );
-            filter: hue-rotate(calc(var(--holo-angle) * 1deg))
-                    saturate(1.2)
-                    brightness(1.05);
+            filter: hue-rotate(calc(var(--holo-angle) * 0.25deg))
+                    saturate(1.4)
+                    brightness(1.08);
           }
 
-          /* Requirement 7.6, 10.1 — freeze foil at neutral state when the user
-             has requested reduced motion at the OS level. */
           @media (prefers-reduced-motion: reduce) {
             .holo-layer {
               animation: none;
@@ -285,11 +307,11 @@
         `;
         document.head.appendChild(this._styleEl);
 
-        // Create the overlay <div> and append it to the card.
-        // Inline styles handle layout/stacking; visual appearance is CSS-rule-driven.
         this._el = document.createElement('div');
         this._el.className = 'holo-layer';
-        this._card.appendChild(this._el);
+        // Append into the clip container so it's clipped by border-radius
+        const clip = this._card.querySelector('.card-inner-clip');
+        (clip || this._card).appendChild(this._el);
       }
 
       /**
@@ -370,7 +392,8 @@
         this._el = document.createElement('div');
         this._el.className = 'specular-layer';
         this._el.style.setProperty('--spec-intensity', this._intensity);
-        this._card.appendChild(this._el);
+        const clip = this._card.querySelector('.card-inner-clip');
+        (clip || this._card).appendChild(this._el);
       }
 
       /**
@@ -469,7 +492,7 @@
 
         // Capture baseline on the first event so all subsequent readings are
         // relative deltas. This means "however you're holding the phone right now"
-        // is the neutral {0,0} position, giving full ±45° range in every direction
+        // is the neutral {0,0} position, giving full range in every direction
         // regardless of the phone's absolute orientation.
         if (this._baseBeta === null) {
           this._baseBeta  = e.beta  ?? 0;
@@ -478,8 +501,11 @@
 
         const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-        const x = clamp((e.gamma ?? 0) - this._baseGamma, -45, 45) / 45;
-        const y = clamp((e.beta  ?? 0) - this._baseBeta,  -45, 45) / 45;
+        // ±20° of physical wrist tilt maps to the full [-1, 1] range.
+        // This matches natural card-holding movement — you don't tilt 45°.
+        const RANGE = 20;
+        const x = clamp((e.gamma ?? 0) - this._baseGamma, -RANGE, RANGE) / RANGE;
+        const y = clamp((e.beta  ?? 0) - this._baseBeta,  -RANGE, RANGE) / RANGE;
 
         this._onTilt({ x, y });
       }
@@ -1070,15 +1096,20 @@
         const s = this._cardEl.style;
         s.setProperty('--tilt-x',     tilt.x);
         s.setProperty('--tilt-y',     tilt.y);
-        s.setProperty('--tilt-deg-x', tilt.y * 12);
-        s.setProperty('--tilt-deg-y', tilt.x * 12);
-        s.setProperty('--holo-angle', (tilt.x * 0.5 + 0.5) * 360);
+        // 25° max rotation — matches the feel of physically tilting a card in hand
+        s.setProperty('--tilt-deg-x', tilt.y * 25);
+        s.setProperty('--tilt-deg-y', tilt.x * 25);
+        // Holo angle sweeps only 90° across the full tilt range so color shifts
+        // feel like light moving across foil, not a spinning rainbow wheel.
+        // Centered at 180° (neutral) → range [135°, 225°]
+        s.setProperty('--holo-angle', 180 + tilt.x * 45);
         s.setProperty('--holo-x',     (tilt.x * 0.5 + 0.5) * 100);
         s.setProperty('--holo-y',     (tilt.y * 0.5 + 0.5) * 100);
         s.setProperty('--spec-x',     (tilt.x * 0.5 + 0.5) * 100);
         s.setProperty('--spec-y',     (tilt.y * 0.5 + 0.5) * 100);
-        s.setProperty('--shadow-x',   tilt.x * -20);
-        s.setProperty('--shadow-y',   tilt.y * -20);
+        // Shadow offset scales with the larger tilt range
+        s.setProperty('--shadow-x',   tilt.x * -28);
+        s.setProperty('--shadow-y',   tilt.y * -28);
       }
 
       /**

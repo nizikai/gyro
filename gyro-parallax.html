@@ -23,10 +23,143 @@
       width: 100%;
       height: 100%;
     }
+
+    /* ── Controls panel ── */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 260px;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 14px 16px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 100;
+      font: 11px/1.5 monospace;
+      color: #ccc;
+      user-select: none;
+    }
+
+    #controls-toggle {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      z-index: 101;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    #controls h3 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #fff;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #controls h3 button {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+
+    #controls h3 button:hover { color: #fff; }
+
+    .ctrl-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .ctrl-row:last-child { margin-bottom: 0; }
+
+    .ctrl-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      grid-column: 1 / -1;
+      margin-bottom: 2px;
+    }
+
+    .ctrl-label span:first-child { color: #aaa; }
+    .ctrl-label span:last-child  { color: #fff; font-weight: 600; }
+
+    .ctrl-row input[type=range] {
+      width: 100%;
+      grid-column: 1 / -1;
+      accent-color: #fff;
+      height: 3px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
+
+  <!-- Controls panel -->
+  <div id="controls">
+    <h3>
+      Parameters
+      <button id="controls-close" title="Hide">✕</button>
+    </h3>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Displacement Scale</span>
+        <span id="val-displacement">60</span>
+      </div>
+      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="60">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Smoothing Factor</span>
+        <span id="val-smoothing">0.06</span>
+      </div>
+      <input type="range" id="sl-smoothing" min="0.01" max="0.3" step="0.01" value="0.06">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Overscan</span>
+        <span id="val-overscan">0.02</span>
+      </div>
+      <input type="range" id="sl-overscan" min="0" max="0.25" step="0.005" value="0.02">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Foreground Scale</span>
+        <span id="val-fgscale">0.08</span>
+      </div>
+      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.08">
+    </div>
+  </div>
+
+  <button id="controls-toggle" title="Show controls">⚙</button>
 
   <script>
     // ---------------------------------------------------------------------------
@@ -1319,6 +1452,52 @@ void main() {
       };
 
       effect.init();
+
+      // ── Live sliders ──────────────────────────────────────────────────────
+      function bindSlider(sliderId, valueId, decimals, onChange) {
+        const slider = document.getElementById(sliderId);
+        const label  = document.getElementById(valueId);
+        slider.addEventListener('input', () => {
+          const v = parseFloat(slider.value);
+          label.textContent = v.toFixed(decimals);
+          onChange(v);
+        });
+      }
+
+      bindSlider('sl-displacement', 'val-displacement', 0, (v) => {
+        if (effect._renderer) effect._renderer._displacementScale = v;
+        // Force redraw by resetting dirty check sentinel
+        if (effect._renderer) effect._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+      });
+
+      bindSlider('sl-smoothing', 'val-smoothing', 2, (v) => {
+        if (effect._renderer) effect._renderer._smoothingFactor = v;
+      });
+
+      bindSlider('sl-overscan', 'val-overscan', 3, (v) => {
+        if (effect._renderer) effect._renderer._overscan = v;
+        if (effect._renderer) effect._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+      });
+
+      bindSlider('sl-fgscale', 'val-fgscale', 3, (v) => {
+        if (effect._renderer) effect._renderer._fgScale = v;
+        if (effect._renderer) effect._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+      });
+
+      // ── Panel show/hide ───────────────────────────────────────────────────
+      const panel  = document.getElementById('controls');
+      const toggle = document.getElementById('controls-toggle');
+      const close  = document.getElementById('controls-close');
+
+      close.addEventListener('click', () => {
+        panel.style.display  = 'none';
+        toggle.style.display = 'flex';
+      });
+
+      toggle.addEventListener('click', () => {
+        panel.style.display  = 'block';
+        toggle.style.display = 'none';
+      });
     });
 
     // ---------------------------------------------------------------------------

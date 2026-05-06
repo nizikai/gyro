@@ -56,7 +56,9 @@ varying vec2 vUV;
 void main() {
   vec2 imageUV = vUV * uUVTransform.xy + uUVTransform.zw;
   float depth = texture2D(uDepthMap, imageUV).r;
-  vec2 offset = uTilt * depth * uDisplacementScale / uResolution;
+  // Invert depth: far pixels (dark, depth≈0) move most; near pixels (bright, depth≈1) move least.
+  // This produces correct parallax — foreground stays locked, background drifts.
+  vec2 offset = uTilt * (1.0 - depth) * uDisplacementScale / uResolution;
   vec4 color = texture2D(uSourceImage, imageUV + offset);
   gl_FragColor = color;
 }
@@ -316,7 +318,7 @@ void main() {
         // uTilt: current smoothed tilt
         gl.uniform2f(u.uTilt, cur.x, cur.y);
 
-        // uDisplacementScale: max pixel offset at depth=1, tilt=1
+        // uDisplacementScale: max pixel offset at depth=0 (far), tilt=1
         gl.uniform1f(u.uDisplacementScale, this._displacementScale);
 
         // uResolution: canvas pixel dimensions
@@ -1226,7 +1228,7 @@ void main() {
       const effect = new ParallaxEffect(canvas, {
         sourceImageUrl:    'input.jpg',
         depthMapUrl:       'output_depthanything.png',
-        displacementScale: 20,
+        displacementScale: 60,
         smoothingFactor:   0.06,
       });
 

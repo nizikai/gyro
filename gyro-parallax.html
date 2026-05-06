@@ -476,45 +476,28 @@ void main() {
 
     class OrientationController {
       /**
-       * @param {function({ x: number, y: number } | null): void} onTilt
-       *   Called with a TiltInput on each deviceorientation event, or null to
-       *   signal that no event fired within the fallback window (500ms).
+       * @param {function({ x: number, y: number }): void} onTilt
+       *   Called with a TiltInput on each deviceorientation event.
+       *   No null/fallback signalling — the caller decides whether to use gyro
+       *   before constructing this controller.
        */
       constructor(onTilt) {
-        this._onTilt       = onTilt;
-        this._baseBeta     = null;
-        this._baseGamma    = null;
-        this._fallbackTimer = null;
+        this._onTilt    = onTilt;
+        this._baseBeta  = null;
+        this._baseGamma = null;
 
         // Bind so the same function reference can be removed in stop()
         this._onDeviceOrientation = this._onDeviceOrientation.bind(this);
       }
 
-      /**
-       * Attaches the deviceorientation listener on window and starts a 500ms
-       * fallback timer.  If no event fires before the timer expires, calls
-       * onTilt(null) to signal that the caller should activate a fallback
-       * (e.g. MouseController).
-       */
+      /** Attaches the deviceorientation listener on window. */
       start() {
         window.addEventListener('deviceorientation', this._onDeviceOrientation);
-
-        this._fallbackTimer = setTimeout(() => {
-          this._fallbackTimer = null;
-          this._onTilt(null);
-        }, 500);
       }
 
-      /**
-       * Detaches the deviceorientation listener and cancels the fallback timer.
-       */
+      /** Detaches the deviceorientation listener. */
       stop() {
         window.removeEventListener('deviceorientation', this._onDeviceOrientation);
-
-        if (this._fallbackTimer !== null) {
-          clearTimeout(this._fallbackTimer);
-          this._fallbackTimer = null;
-        }
       }
 
       // -----------------------------------------------------------------------
@@ -525,7 +508,6 @@ void main() {
        * Handles each deviceorientation event.
        *
        * On the first call:
-       *   - Clears the fallback timer (an event did fire in time).
        *   - Captures beta/gamma as the baseline.
        *   - Reports {x: 0, y: 0} (delta from baseline is zero).
        *
@@ -537,12 +519,6 @@ void main() {
        * @param {DeviceOrientationEvent} e
        */
       _onDeviceOrientation(e) {
-        // Clear the fallback timer on the very first event
-        if (this._fallbackTimer !== null) {
-          clearTimeout(this._fallbackTimer);
-          this._fallbackTimer = null;
-        }
-
         // Guard: some browsers fire events with null beta/gamma — skip them
         if (e.beta === null || e.gamma === null) return;
 
@@ -1072,62 +1048,63 @@ void main() {
 
       /**
        * Determines which input controller to start based on device type.
-       * - Mobile/touch devices: gyroscope via OrientationController (with iOS permission gate)
-       * - Desktop: mouse hover via MouseController directly
+       *
+       * Decision tree:
+       *   - Non-touch device → MouseController (desktop)
+       *   - Touch + iOS permission API → show prompt; on grant → OrientationController,
+       *     on deny → MouseController
+       *   - Touch + no permission API (Android) → OrientationController directly
        */
       _startInputController() {
         const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         console.log('[ParallaxEffect] isTouchDevice:', isTouchDevice, '| maxTouchPoints:', navigator.maxTouchPoints);
 
-        if (isTouchDevice) {
-          // Mobile path: try gyroscope, with iOS 13+ permission gate if needed
+        if (!isTouchDevice) {
+          // Desktop — mouse only
+          console.log('[ParallaxEffect] Desktop detected — starting MouseController');
+          this._startMouseController();
+          return;
+        }
+
+        // Mobile path
+        const needsPermission = (
+          typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function'
+        ) || (
+          typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function'
+        );
+
+        if (needsPermission) {
+          // iOS 13+ — must ask before gyro events fire
+          console.log('[ParallaxEffect] iOS permission required — showing prompt');
           const permManager = new PermissionManager(
             () => {
               console.log('[ParallaxEffect] Permission granted — starting OrientationController');
-              // Stop any existing controller before starting a new one
-              if (this._activeController) {
-                this._activeController.stop();
-              }
+              if (this._activeController) this._activeController.stop();
               this._startOrientationController();
             },
             () => {
               console.warn('[ParallaxEffect] Permission denied — falling back to MouseController');
-              // Stop any existing controller before starting a new one
-              if (this._activeController) {
-                this._activeController.stop();
-              }
+              if (this._activeController) this._activeController.stop();
               this._startMouseController();
             }
           );
-
-          if (permManager.needsPermission()) {
-            console.log('[ParallaxEffect] iOS permission required — showing prompt');
-            permManager.showPrompt(this._canvas);
-          } else {
-            console.log('[ParallaxEffect] No permission gate needed — starting OrientationController');
-            this._startOrientationController();
-          }
+          permManager.showPrompt(this._canvas);
         } else {
-          // Desktop path: mouse hover directly, no gyro attempt
-          console.log('[ParallaxEffect] Desktop detected — starting MouseController');
-          this._startMouseController();
+          // Android / other touch — gyro available without a permission gate
+          console.log('[ParallaxEffect] Touch device, no permission gate — starting OrientationController');
+          this._startOrientationController();
         }
       }
 
       /**
-       * Starts the OrientationController. If no deviceorientation event fires
-       * within 2000ms, falls back to MouseController.
+       * Starts the OrientationController as the committed gyro input.
+       * No fallback timer — the caller already decided gyro is available.
        */
       _startOrientationController() {
-        console.log('[ParallaxEffect] OrientationController starting — waiting for deviceorientation events...');
+        console.log('[ParallaxEffect] OrientationController starting');
         const controller = new OrientationController((tilt) => {
-          if (tilt === null) {
-            // Timeout — no deviceorientation event; fall back to mouse
-            console.warn('[ParallaxEffect] No deviceorientation event received — falling back to MouseController');
-            this._activeController = null;
-            this._startMouseController();
-            return;
-          }
           console.log('[ParallaxEffect] Gyro tilt:', tilt.x.toFixed(3), tilt.y.toFixed(3));
           if (!this._motionFrozen) {
             this._renderer.setTargetTilt(tilt);

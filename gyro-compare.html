@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gyro Parallax Effect</title>
+  <title>Depth Map Comparison</title>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -23,10 +23,70 @@
       width: 100%;
       height: 100%;
     }
+
+    /* Depth map switcher UI */
+    #switcher {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 100;
+    }
+
+    #switcher button {
+      padding: 10px 22px;
+      border: 1.5px solid rgba(255,255,255,0.25);
+      border-radius: 999px;
+      background: rgba(0,0,0,0.55);
+      color: #ccc;
+      font: 13px/1 monospace;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    #switcher button.active {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.7);
+      color: #fff;
+    }
+
+    #switcher button:hover:not(.active) {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.4);
+      color: #eee;
+    }
+
+    /* Label showing current depth map */
+    #depth-label {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font: 12px/1.5 monospace;
+      padding: 6px 14px;
+      border-radius: 999px;
+      letter-spacing: 0.08em;
+      z-index: 100;
+      pointer-events: none;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
+  <div id="depth-label">MIDAS</div>
+  <div id="switcher">
+    <button id="btn-midas" class="active" onclick="switchDepth('midas')">Midas</button>
+    <button id="btn-depthanything" onclick="switchDepth('depthanything')">DepthAnything</button>
+  </div>
 
   <script>
     // ---------------------------------------------------------------------------
@@ -1215,101 +1275,56 @@ void main() {
     // Bootstrap — wire everything together
     // ---------------------------------------------------------------------------
 
-    document.addEventListener('DOMContentLoaded', () => {
-      const canvas = document.getElementById('canvas');
+    // ---------------------------------------------------------------------------
+    // Depth map comparison bootstrap
+    // ---------------------------------------------------------------------------
 
-      // Accessibility: describe the canvas for screen readers (Requirement 10.3)
-      canvas.setAttribute('aria-label', 'Parallax depth photo — tilt your device or move the mouse to explore the scene');
+    const DEPTH_MAPS = {
+      midas:        { url: 'midas.png',        label: 'MIDAS' },
+      depthanything: { url: 'depthanything.png', label: 'DEPTH ANYTHING' },
+    };
 
-      // --- Debug HUD (remove in production) ---
-      const hud = document.createElement('div');
-      hud.style.cssText = [
-        'position: fixed',
-        'top: 10px',
-        'left: 10px',
-        'background: rgba(0,0,0,0.75)',
-        'color: #0f0',
-        'font: 12px/1.6 monospace',
-        'padding: 8px 12px',
-        'border-radius: 6px',
-        'z-index: 999',
-        'pointer-events: none',
-        'white-space: pre',
-      ].join('; ');
-      hud.textContent = 'Initializing…';
-      document.body.appendChild(hud);
+    let currentEffect = null;
+    let currentKey    = 'midas';
 
-      // Patch window to intercept deviceorientation events for the HUD
-      let hudController = 'none';
-      let hudRaw = { beta: '—', gamma: '—' };
-      let hudTilt = { x: '—', y: '—' };
+    async function switchDepth(key) {
+      if (key === currentKey && currentEffect) return;
 
-      window.addEventListener('deviceorientation', (e) => {
-        hudRaw.beta  = e.beta  != null ? e.beta.toFixed(1)  : 'null';
-        hudRaw.gamma = e.gamma != null ? e.gamma.toFixed(1) : 'null';
-      });
+      // Update button states
+      document.querySelectorAll('#switcher button').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('btn-' + key).classList.add('active');
+      document.getElementById('depth-label').textContent = DEPTH_MAPS[key].label;
 
-      function updateHUD() {
-        hud.textContent = [
-          `controller : ${hudController}`,
-          `raw beta   : ${hudRaw.beta}°`,
-          `raw gamma  : ${hudRaw.gamma}°`,
-          `tilt x     : ${hudTilt.x}`,
-          `tilt y     : ${hudTilt.y}`,
-          `touch pts  : ${navigator.maxTouchPoints}`,
-          `DOE perm   : ${typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function' ? 'required' : 'not required'}`,
-        ].join('\n');
-        requestAnimationFrame(updateHUD);
+      // Destroy existing effect
+      if (currentEffect) {
+        currentEffect.destroy();
+        currentEffect = null;
       }
-      updateHUD();
 
+      currentKey = key;
+
+      const canvas = document.getElementById('canvas');
       const effect = new ParallaxEffect(canvas, {
         sourceImageUrl:    'input.jpeg',
-        depthMapUrl:       'midas.png',
+        depthMapUrl:       DEPTH_MAPS[key].url,
         displacementScale: 60,
         smoothingFactor:   0.06,
+        overscan:          0.15,
       });
 
       effect.addEventListener('error', (e) => {
         console.error('[ParallaxEffect] Error:', e.detail.message);
-        hud.textContent = 'ERROR: ' + e.detail.message;
       });
 
-      // Monkey-patch setTargetTilt to update HUD
-      const origSetTargetTilt = effect._renderer
-        ? effect._renderer.setTargetTilt.bind(effect._renderer)
-        : null;
+      await effect.init();
+      currentEffect = effect;
+    }
 
-      // We'll patch after init since renderer is created inside init()
-      const origInit = effect.init.bind(effect);
-      effect.init = async function() {
-        await origInit();
-        if (effect._renderer) {
-          const orig = effect._renderer.setTargetTilt.bind(effect._renderer);
-          effect._renderer.setTargetTilt = function(tilt) {
-            hudTilt.x = tilt.x.toFixed(3);
-            hudTilt.y = tilt.y.toFixed(3);
-            orig(tilt);
-          };
-        }
-        if (effect._activeController instanceof OrientationController) {
-          hudController = 'gyro';
-        } else if (effect._activeController instanceof MouseController) {
-          hudController = 'mouse';
-        }
-        // Poll controller type since it may switch after fallback
-        setInterval(() => {
-          if (effect._activeController instanceof OrientationController) {
-            hudController = 'gyro';
-          } else if (effect._activeController instanceof MouseController) {
-            hudController = 'mouse';
-          } else {
-            hudController = 'none';
-          }
-        }, 500);
-      };
-
-      effect.init();
+    document.addEventListener('DOMContentLoaded', () => {
+      const canvas = document.getElementById('canvas');
+      canvas.setAttribute('aria-label', 'Parallax depth photo — tilt your device or move the mouse to explore the scene');
+      // Start with midas
+      switchDepth('midas');
     });
 
     // ---------------------------------------------------------------------------

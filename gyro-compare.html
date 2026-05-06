@@ -112,18 +112,12 @@ uniform vec2 uTilt;
 uniform float uDisplacementScale;
 uniform vec2 uResolution;
 uniform vec4 uUVTransform;
-// uOverscan: fraction cropped on each side — gives parallax room to move.
+// uOverscan: fraction cropped on each side (0.10 = 10%).
 uniform float uOverscan;
-// uFadeWidth: fraction of the *cropped* image that fades to background at each edge.
-// Applied on top of overscan so the transition is always smooth.
-uniform float uFadeWidth;
+// uFgScale: extra zoom applied to foreground pixels (depth≈1 = close).
+// e.g. 0.02 = foreground appears 2% larger, covering background edges.
+uniform float uFgScale;
 varying vec2 vUV;
-
-float edgeFade(vec2 uv, float fw) {
-  // smoothstep from 0→1 near each edge, multiply all four sides together
-  vec2 d = smoothstep(0.0, fw, uv) * smoothstep(0.0, fw, 1.0 - uv);
-  return d.x * d.y;
-}
 
 void main() {
   vec2 scale  = uUVTransform.xy;
@@ -141,20 +135,15 @@ void main() {
   imageUV = imageUV * (1.0 - 2.0 * uOverscan) + uOverscan;
 
   float depth = texture2D(uDepthMap, imageUV).r;
-  // bright = close (moves least), dark = far (moves most)
+
+  // Parallax: bright = close (moves least), dark = far (moves most)
   vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
-  vec2 sampledUV = clamp(imageUV + parallaxOffset, 0.0, 1.0);
+
+  // Foreground scale: zoom near pixels slightly toward center.
+  vec2 fgOffset = (imageUV - 0.5) * depth * uFgScale;
+  vec2 sampledUV = clamp(imageUV + parallaxOffset - fgOffset, 0.0, 1.0);
 
   vec4 color = texture2D(uSourceImage, sampledUV);
-
-  // Edge fade: compute mask in the overscan-cropped UV space [overscan, 1-overscan]
-  // Remap imageUV back to [0,1] within the cropped window for the fade calculation
-  vec2 croppedUV = (imageUV - uOverscan) / (1.0 - 2.0 * uOverscan);
-  float fade = edgeFade(croppedUV, uFadeWidth);
-
-  vec3 bg = vec3(0.067, 0.067, 0.067);
-  color.rgb = mix(bg, color.rgb, fade);
-
   gl_FragColor = color;
 }
 `;
@@ -224,10 +213,10 @@ void main() {
           ? options.smoothingFactor : 0.1;
         // Overscan: fraction of image cropped on each side to hide edge artifacts.
         this._overscan = (options && options.overscan != null)
-          ? options.overscan : 0.15;
-        // FadeWidth: fraction of the cropped image that fades to background at each edge.
-        this._fadeWidth = (options && options.fadeWidth != null)
-          ? options.fadeWidth : 0.12;
+          ? options.overscan : 0.10;
+        // FgScale: foreground zoom factor — near pixels scale up slightly to cover background edges.
+        this._fgScale = (options && options.fgScale != null)
+          ? options.fgScale : 0.02;
 
         this._currentTilt      = { x: 0, y: 0 };
         this._targetTilt       = { x: 0, y: 0 };
@@ -318,7 +307,7 @@ void main() {
           uResolution:        gl.getUniformLocation(program, 'uResolution'),
           uUVTransform:       gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan:          gl.getUniformLocation(program, 'uOverscan'),
-          uFadeWidth:         gl.getUniformLocation(program, 'uFadeWidth'),
+          uFgScale:           gl.getUniformLocation(program, 'uFgScale'),
         };
 
         // Bind texture samplers to their units (set once, they don't change)
@@ -439,8 +428,8 @@ void main() {
         // uOverscan: hidden margin on each side that absorbs parallax displacement
         gl.uniform1f(u.uOverscan, this._overscan);
 
-        // uFadeWidth: soft fade at the edges of the cropped image
-        gl.uniform1f(u.uFadeWidth, this._fadeWidth);
+        // uFgScale: foreground zoom to cover background edges
+        gl.uniform1f(u.uFgScale, this._fgScale);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
         // Update last-rendered tilt
@@ -536,7 +525,7 @@ void main() {
           uResolution:        gl.getUniformLocation(program, 'uResolution'),
           uUVTransform:       gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan:          gl.getUniformLocation(program, 'uOverscan'),
-          uFadeWidth:         gl.getUniformLocation(program, 'uFadeWidth'),
+          uFgScale:           gl.getUniformLocation(program, 'uFgScale'),
         };
 
         // Re-bind texture samplers to their units
@@ -953,9 +942,9 @@ void main() {
         this._smoothingFactor  = (options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
         this._overscan         = (options.overscan != null)
-          ? options.overscan : 0.15;
-        this._fadeWidth        = (options.fadeWidth != null)
-          ? options.fadeWidth : 0.12;
+          ? options.overscan : 0.10;
+        this._fgScale          = (options.fgScale != null)
+          ? options.fgScale : 0.02;
 
         this._targetTilt       = { x: 0, y: 0 };
         this._activeController = null;
@@ -1091,7 +1080,7 @@ void main() {
             displacementScale: this._displacementScale,
             smoothingFactor:   this._smoothingFactor,
             overscan:          this._overscan,
-            fadeWidth:         this._fadeWidth,
+            fgScale:           this._fgScale,
           }
         );
 

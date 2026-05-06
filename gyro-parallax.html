@@ -73,10 +73,9 @@ void main() {
   vec2 imageUV = (vUV - offset) / scale;
 
   float depth = texture2D(uDepthMap, imageUV).r;
-  // Invert depth: far pixels (dark, depth≈0) move most; near pixels (bright, depth≈1) move least.
-  // This produces correct parallax — foreground stays locked, background drifts.
+  // Depth map: dark = close (foreground, moves least), bright = far (background, moves most).
   // The offset is in image UV space: divide by scale to convert pixel displacement to image UV units.
-  vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
+  vec2 parallaxOffset = uTilt * depth * uDisplacementScale / (uResolution * scale);
   vec2 sampledUV = imageUV + parallaxOffset;
 
   // Clamp to [0, 1] image UV space to prevent edge smearing / duplication

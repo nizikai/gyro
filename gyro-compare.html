@@ -213,10 +213,10 @@ void main() {
           ? options.smoothingFactor : 0.1;
         // Overscan: fraction of image cropped on each side to hide edge artifacts.
         this._overscan = (options && options.overscan != null)
-          ? options.overscan : 0.10;
+          ? options.overscan : 0.05;
         // FgScale: foreground zoom factor — near pixels scale up slightly to cover background edges.
         this._fgScale = (options && options.fgScale != null)
-          ? options.fgScale : 0.02;
+          ? options.fgScale : 0.04;
 
         this._currentTilt      = { x: 0, y: 0 };
         this._targetTilt       = { x: 0, y: 0 };
@@ -942,9 +942,9 @@ void main() {
         this._smoothingFactor  = (options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
         this._overscan         = (options.overscan != null)
-          ? options.overscan : 0.10;
+          ? options.overscan : 0.05;
         this._fgScale          = (options.fgScale != null)
-          ? options.fgScale : 0.02;
+          ? options.fgScale : 0.04;
 
         this._targetTilt       = { x: 0, y: 0 };
         this._activeController = null;

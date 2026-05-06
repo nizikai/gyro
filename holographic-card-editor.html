@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Holographic Card Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: 'Geist Mono', 'Courier New', monospace;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      overflow: hidden;
+    }
+
+    /* ── Layout ── */
+    .editor-layout {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* ── Preview panel ── */
+    .preview-panel {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      background: #0a0a0a;
+      overflow: hidden;
+    }
+
+    .preview-glow {
+      position: absolute;
+      width: 480px;
+      height: 320px;
+      background: radial-gradient(ellipse at center,
+        rgba(0, 212, 170, 0.06) 0%,
+        rgba(100, 80, 255, 0.04) 40%,
+        transparent 70%);
+      pointer-events: none;
+      border-radius: 50%;
+    }
+
+    .preview-container {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Card styles (copied from holographic-card.html) ── */
+    .card-wrapper {
+      perspective: 900px;
+    }
+
+    .card {
+      width: 340px;
+      height: 216px;
+      border-radius: 12px;
+      position: relative;
+      overflow: visible;
+      will-change: transform;
+      background-color: #1a1a2e;
+      --tilt-x: 0;
+      --tilt-y: 0;
+      --holo-angle: 180;
+      --holo-x: 50;
+      --holo-y: 50;
+      --spec-x: 50;
+      --spec-y: 50;
+      --tilt-deg-x: 0;
+      --tilt-deg-y: 0;
+      --shadow-x: 0;
+      --shadow-y: 0;
+      transform-style: preserve-3d;
+      transform: rotateX(calc(var(--tilt-deg-x) * 1deg))
+                 rotateY(calc(var(--tilt-deg-y) * 1deg));
+      box-shadow:
+        calc(var(--shadow-x) * 1px) calc(var(--shadow-y) * 1px) 48px rgba(0,0,0,0.7),
+        calc(var(--shadow-x) * 0.4px) calc(var(--shadow-y) * 0.4px) 16px rgba(0,0,0,0.5);
+      transition: none;
+    }
+
+    .card-inner-clip {
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 13px;
+      padding: 1px;
+      background: conic-gradient(
+        from calc((var(--holo-angle) - 90) * 1deg),
+        rgba(255,255,255,0.0)  0%,
+        rgba(255,255,255,0.55) 20%,
+        rgba(180,200,255,0.35) 35%,
+        rgba(255,255,255,0.0)  50%,
+        rgba(255,255,255,0.0)  100%
+      );
+      -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* ── Controls panel ── */
+    .controls-panel {
+      width: 340px;
+      min-width: 340px;
+      background: #111111;
+      border-left: 1px solid #1e1e1e;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .controls-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid #1a1a1a;
+      flex-shrink: 0;
+    }
+
+    .controls-header h1 {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #888;
+    }
+
+    .controls-header p {
+      font-size: 10px;
+      color: #444;
+      margin-top: 4px;
+      letter-spacing: 0.05em;
+    }
+
+    .controls-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0 24px;
+      scrollbar-width: thin;
+      scrollbar-color: #2a2a2a transparent;
+    }
+
+    .controls-scroll::-webkit-scrollbar { width: 4px; }
+    .controls-scroll::-webkit-scrollbar-track { background: transparent; }
+    .controls-scroll::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+    /* ── Section ── */
+    .section {
+      padding: 16px 24px 8px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .section-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #444;
+      white-space: nowrap;
+    }
+
+    .section-line {
+      flex: 1;
+      height: 1px;
+      background: #1e1e1e;
+    }
+
+    /* ── Control row ── */
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      min-height: 32px;
+    }
+
+    .control-label {
+      font-size: 10px;
+      color: #666;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 80px;
+    }
+
+    .control-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      justify-content: flex-end;
+    }
+
+    /* ── Text inputs ── */
+    .text-input {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-family: 'Geist Mono', 'Courier New', monospace;
+      font-size: 11px;
+      padding: 6px 10px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .text-input:focus {
+      border-color: #00d4aa44;
+      background: #1e1e1e;
+    }
+
+    .text-input::placeholder { color: #3a3a3a; }
+
+    /* ── Sliders ── */
+    .slider-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+
+    .slider {
+      -webkit-appearance: none;
+      appearance: none;
+      flex: 1;
+      height: 3px;
+      background: #2a2a2a;
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: #00d4aa;
+      cursor: pointer;
+      box-shadow: 0 0 6px rgba(0, 212, 170, 0.4);
+      transition: box-shadow 0.15s ease, transform 0.1s ease;
+    }
+
+    .slider::-webkit-slider-thumb:hover {
+      box-shadow: 0 0 10px rgba(0, 212, 170, 0.7);
+      transform: scale(1.15);
+    }
+
+    .slider::-moz-range-thumb {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: #00d4aa;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 0 6px rgba(0, 212, 170, 0.4);
+    }
+
+    .slider-value {
+      font-size: 10px;
+      color: #00d4aa;
+      min-width: 32px;
+      text-align: right;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Color pickers ── */
+    .color-swatch-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .color-swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+      transition: border-color 0.15s ease, transform 0.1s ease;
+    }
+
+    .color-swatch:hover {
+      border-color: #555;
+      transform: scale(1.08);
+    }
+
+    .color-swatch input[type="color"] {
+      position: absolute;
+      inset: -4px;
+      width: calc(100% + 8px);
+      height: calc(100% + 8px);
+      opacity: 0;
+      cursor: pointer;
+      border: none;
+      padding: 0;
+    }
+
+    .color-hex {
+      font-size: 10px;
+      color: #555;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── Image upload ── */
+    .image-upload-zone {
+      border: 1px dashed #2a2a2a;
+      border-radius: 6px;
+      padding: 20px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      position: relative;
+    }
+
+    .image-upload-zone:hover,
+    .image-upload-zone.drag-over {
+      border-color: #00d4aa55;
+      background: #00d4aa08;
+    }
+
+    .image-upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .upload-icon {
+      font-size: 18px;
+      margin-bottom: 6px;
+      opacity: 0.4;
+    }
+
+    .upload-text {
+      font-size: 10px;
+      color: #444;
+      letter-spacing: 0.06em;
+      line-height: 1.5;
+    }
+
+    .image-preview-wrap {
+      display: none;
+      margin-top: 10px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .image-preview-wrap.visible {
+      display: flex;
+    }
+
+    .image-thumb {
+      width: 48px;
+      height: 32px;
+      border-radius: 4px;
+      object-fit: cover;
+      border: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+
+    .image-thumb-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .image-thumb-name {
+      font-size: 9px;
+      color: #555;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: 0.04em;
+    }
+
+    .btn-remove {
+      background: none;
+      border: 1px solid #2a2a2a;
+      border-radius: 3px;
+      color: #555;
+      font-family: 'Geist Mono', 'Courier New', monospace;
+      font-size: 9px;
+      padding: 3px 8px;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: border-color 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .btn-remove:hover {
+      border-color: #ff4444;
+      color: #ff4444;
+    }
+
+    /* ── Card image overlay div ── */
+    .card-bg-image {
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      background-size: cover;
+      background-position: center;
+      z-index: 0;
+    }
+
+    .card-bg-overlay {
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="editor-layout">
+
+  <!-- ── Preview Panel ── -->
+  <div class="preview-panel">
+    <div class="preview-glow"></div>
+    <div class="preview-container" id="card-container">
+      <!-- Card injected by JS -->
+    </div>
+  </div>
+
+  <!-- ── Controls Panel ── -->
+  <div class="controls-panel">
+    <div class="controls-header">
+      <h1>Card Editor</h1>
+      <p>Live holographic preview</p>
+    </div>
+
+    <div class="controls-scroll">
+
+      <!-- TEXT -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Text</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 1</span>
+          <div class="control-right">
+            <input class="text-input" id="input-line1" type="text" value="Nico Prasetyo" placeholder="Name">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 2</span>
+          <div class="control-right">
+            <input class="text-input" id="input-line2" type="text" value="Founder" placeholder="Title">
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 3</span>
+          <div class="control-right">
+            <input class="text-input" id="input-line3" type="text" value="Nizi Labs" placeholder="Company">
+          </div>
+        </div>
+      </div>
+
+      <!-- CARD -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Card</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Card Color</span>
+          <div class="control-right">
+            <div class="color-swatch-wrap">
+              <div class="color-swatch" id="swatch-card-bg" style="background:#1a1a2e">
+                <input type="color" id="picker-card-bg" value="#1a1a2e">
+              </div>
+              <span class="color-hex" id="hex-card-bg">#1a1a2e</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEXT COLORS -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Text Colors</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 1</span>
+          <div class="control-right">
+            <div class="color-swatch-wrap">
+              <div class="color-swatch" id="swatch-color1" style="background:#f0f0f0">
+                <input type="color" id="picker-color1" value="#f0f0f0">
+              </div>
+              <span class="color-hex" id="hex-color1">#f0f0f0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 2</span>
+          <div class="control-right">
+            <div class="color-swatch-wrap">
+              <div class="color-swatch" id="swatch-color2" style="background:#c0c0c0">
+                <input type="color" id="picker-color2" value="#c0c0c0">
+              </div>
+              <span class="color-hex" id="hex-color2">#c0c0c0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 3</span>
+          <div class="control-right">
+            <div class="color-swatch-wrap">
+              <div class="color-swatch" id="swatch-color3" style="background:#c0c0c0">
+                <input type="color" id="picker-color3" value="#c0c0c0">
+              </div>
+              <span class="color-hex" id="hex-color3">#c0c0c0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HOLOGRAPHIC -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Holographic</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Holo Intensity</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-holo" type="range" min="0" max="1" step="0.01" value="0.55">
+              <span class="slider-value" id="val-holo">0.55</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Specular</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-spec" type="range" min="0" max="1" step="0.01" value="0.8">
+              <span class="slider-value" id="val-spec">0.80</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Tilt Sensitivity</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-tilt" type="range" min="5" max="35" step="1" value="25">
+              <span class="slider-value" id="val-tilt">25</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Holo Sweep</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-sweep" type="range" min="10" max="180" step="1" value="45">
+              <span class="slider-value" id="val-sweep">45</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMAGE -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Image</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="image-upload-zone" id="upload-zone">
+          <input type="file" id="file-input" accept="image/*">
+          <div class="upload-icon">⬆</div>
+          <div class="upload-text">Drop image or click to upload<br><span style="color:#333">PNG, JPG, WebP, GIF</span></div>
+        </div>
+
+        <div class="image-preview-wrap" id="image-preview-wrap">
+          <img class="image-thumb" id="image-thumb" src="" alt="Preview">
+          <div class="image-thumb-info">
+            <div class="image-thumb-name" id="image-thumb-name">—</div>
+          </div>
+          <button class="btn-remove" id="btn-remove-image">Remove</button>
+        </div>
+      </div>
+
+    </div><!-- /controls-scroll -->
+  </div><!-- /controls-panel -->
+
+</div><!-- /editor-layout -->
+
+<script>
+// ─── Card modules (copied from holographic-card.html) ────────────────────────
+
+class CardContent {
+  constructor(cardElement) {
+    this._card = cardElement;
+    this._nodes = [];
+    this._nameEl = null;
+    this._titleEl = null;
+    this._companyEl = null;
+  }
+
+  init() {
+    this._card.setAttribute('aria-label', 'Holographic business card for Nico Prasetyo, Founder at Nizi Labs');
+
+    const clip = document.createElement('div');
+    clip.className = 'card-inner-clip';
+    this._card.appendChild(clip);
+    this._clip = clip;
+
+    const container = document.createElement('div');
+    container.style.cssText = [
+      'position: absolute', 'inset: 0', 'z-index: 1',
+      'display: flex', 'flex-direction: column', 'justify-content: flex-end',
+      'padding: 24px 28px', 'pointer-events: none',
+    ].join('; ');
+
+    const nameEl = document.createElement('p');
+    nameEl.textContent = 'Nico Prasetyo';
+    nameEl.style.cssText = [
+      "font-family: 'Geist Mono', 'Courier New', monospace",
+      'font-size: 28px', 'font-weight: 600', 'line-height: 1.2',
+      'color: #f0f0f0', 'margin: 0 0 6px 0', 'letter-spacing: 0.01em',
+    ].join('; ');
+
+    const titleEl = document.createElement('p');
+    titleEl.textContent = 'Founder';
+    titleEl.style.cssText = [
+      "font-family: 'Geist Mono', 'Courier New', monospace",
+      'font-size: 14px', 'font-weight: 300', 'line-height: 1.4',
+      'color: #c0c0c0', 'margin: 0 0 10px 0', 'letter-spacing: 0.04em',
+    ].join('; ');
+
+    const companyEl = document.createElement('p');
+    companyEl.textContent = 'Nizi Labs';
+    companyEl.style.cssText = [
+      "font-family: 'Geist Mono', 'Courier New', monospace",
+      'font-size: 11px', 'font-weight: 400', 'line-height: 1.4',
+      'color: #c0c0c0', 'margin: 0', 'letter-spacing: 0.2em',
+      'text-transform: uppercase',
+    ].join('; ');
+
+    container.appendChild(nameEl);
+    container.appendChild(titleEl);
+    container.appendChild(companyEl);
+    this._clip.appendChild(container);
+    this._nodes.push(clip);
+
+    this._nameEl    = nameEl;
+    this._titleEl   = titleEl;
+    this._companyEl = companyEl;
+  }
+
+  destroy() {
+    for (const node of this._nodes) {
+      if (node.parentNode) node.parentNode.removeChild(node);
+    }
+    this._nodes = [];
+    this._card.removeAttribute('aria-label');
+  }
+}
+
+class HolographicLayer {
+  constructor(cardElement, options) {
+    this._card    = cardElement;
+    this._opacity = (options && options.opacity != null) ? options.opacity : 0.55;
+    this._el      = null;
+    this._styleEl = null;
+  }
+
+  init() {
+    this._styleEl = document.createElement('style');
+    this._styleEl.textContent = `
+      .holo-layer {
+        position: absolute; inset: 0; z-index: 2;
+        border-radius: inherit;
+        opacity: ${this._opacity};
+        mix-blend-mode: color-dodge;
+        pointer-events: none;
+        background:
+          linear-gradient(
+            calc(var(--holo-angle) * 1deg),
+            hsl(210, 30%, 80%)  0%,
+            hsl(260, 35%, 82%) 25%,
+            hsl(320, 28%, 84%) 50%,
+            hsl(170, 32%, 80%) 75%,
+            hsl(210, 30%, 80%) 100%
+          ),
+          linear-gradient(
+            calc(var(--holo-angle) * 1deg + 45deg),
+            transparent 20%,
+            rgba(255,255,255,0.10) 50%,
+            transparent 80%
+          );
+        filter: hue-rotate(calc(var(--holo-angle) * 0.25deg)) saturate(1.4) brightness(1.08);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .holo-layer { animation: none; filter: none; }
+      }
+    `;
+    document.head.appendChild(this._styleEl);
+
+    this._el = document.createElement('div');
+    this._el.className = 'holo-layer';
+    const clip = this._card.querySelector('.card-inner-clip');
+    (clip || this._card).appendChild(this._el);
+  }
+
+  destroy() {
+    if (this._el && this._el.parentNode) this._el.parentNode.removeChild(this._el);
+    this._el = null;
+    if (this._styleEl && this._styleEl.parentNode) this._styleEl.parentNode.removeChild(this._styleEl);
+    this._styleEl = null;
+  }
+}
+
+class SpecularHighlight {
+  constructor(cardElement, options) {
+    this._card      = cardElement;
+    this._intensity = (options && options.intensity != null) ? options.intensity : 0.8;
+    this._el        = null;
+    this._styleEl   = null;
+  }
+
+  init() {
+    this._styleEl = document.createElement('style');
+    this._styleEl.textContent = `
+      .specular-layer {
+        position: absolute; inset: 0; z-index: 3;
+        border-radius: inherit;
+        mix-blend-mode: overlay;
+        pointer-events: none;
+        background: radial-gradient(
+          circle at calc(var(--spec-x) * 1%) calc(var(--spec-y) * 1%),
+          rgba(255,255,255,calc(var(--spec-intensity,0.8))) 0%,
+          rgba(255,255,255,0.1) 30%,
+          transparent 60%
+        );
+      }
+    `;
+    document.head.appendChild(this._styleEl);
+
+    this._el = document.createElement('div');
+    this._el.className = 'specular-layer';
+    this._el.style.setProperty('--spec-intensity', this._intensity);
+    const clip = this._card.querySelector('.card-inner-clip');
+    (clip || this._card).appendChild(this._el);
+  }
+
+  destroy() {
+    if (this._el && this._el.parentNode) this._el.parentNode.removeChild(this._el);
+    this._el = null;
+    if (this._styleEl && this._styleEl.parentNode) this._styleEl.parentNode.removeChild(this._styleEl);
+    this._styleEl = null;
+  }
+}
+
+class OrientationController {
+  constructor(onTilt) {
+    this._onTilt        = onTilt;
+    this._boundHandler  = this._onDeviceOrientation.bind(this);
+    this._fallbackTimer = null;
+    this._baseBeta      = null;
+    this._baseGamma     = null;
+  }
+
+  start() {
+    window.addEventListener('deviceorientation', this._boundHandler);
+    this._fallbackTimer = setTimeout(() => {
+      this._fallbackTimer = null;
+      this._onTilt(null);
+    }, 500);
+  }
+
+  stop() {
+    window.removeEventListener('deviceorientation', this._boundHandler);
+    if (this._fallbackTimer !== null) {
+      clearTimeout(this._fallbackTimer);
+      this._fallbackTimer = null;
+    }
+  }
+
+  _onDeviceOrientation(e) {
+    if (this._fallbackTimer !== null) {
+      clearTimeout(this._fallbackTimer);
+      this._fallbackTimer = null;
+    }
+    if (this._baseBeta === null) {
+      this._baseBeta  = e.beta  ?? 0;
+      this._baseGamma = e.gamma ?? 0;
+    }
+    const clamp = (v, mn, mx) => Math.min(Math.max(v, mn), mx);
+    const RANGE = 20;
+    const x = clamp((e.gamma ?? 0) - this._baseGamma, -RANGE, RANGE) / RANGE;
+    const y = clamp((e.beta  ?? 0) - this._baseBeta,  -RANGE, RANGE) / RANGE;
+    this._onTilt({ x, y });
+  }
+}
+
+class MouseController {
+  constructor(element, onTilt) {
+    this._element      = element;
+    this._onTilt       = onTilt;
+    this._currentTilt  = { x: 0, y: 0 };
+    this._returnRafId  = null;
+    this._boundMouseMove  = this._onMouseMove.bind(this);
+    this._boundMouseLeave = this._onMouseLeave.bind(this);
+    this._boundTouchMove  = this._onTouchMove.bind(this);
+  }
+
+  start() {
+    this._element.addEventListener('mousemove',  this._boundMouseMove);
+    this._element.addEventListener('mouseleave', this._boundMouseLeave);
+    this._element.addEventListener('touchmove',  this._boundTouchMove, { passive: true });
+  }
+
+  stop() {
+    this._element.removeEventListener('mousemove',  this._boundMouseMove);
+    this._element.removeEventListener('mouseleave', this._boundMouseLeave);
+    this._element.removeEventListener('touchmove',  this._boundTouchMove);
+    if (this._returnRafId !== null) {
+      cancelAnimationFrame(this._returnRafId);
+      this._returnRafId = null;
+    }
+  }
+
+  _onMouseMove(e) {
+    if (this._returnRafId !== null) { cancelAnimationFrame(this._returnRafId); this._returnRafId = null; }
+    const rect = this._element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const x = ((e.clientX - rect.left) / rect.width  - 0.5) * 2;
+    const y = ((e.clientY - rect.top)  / rect.height - 0.5) * 2;
+    this._currentTilt = { x, y };
+    this._onTilt({ x, y });
+  }
+
+  _onMouseLeave() { this._startReturnAnimation(); }
+
+  _onTouchMove(e) {
+    if (!e.touches || e.touches.length === 0) return;
+    if (this._returnRafId !== null) { cancelAnimationFrame(this._returnRafId); this._returnRafId = null; }
+    const touch = e.touches[0];
+    const rect  = this._element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const x = ((touch.clientX - rect.left) / rect.width  - 0.5) * 2;
+    const y = ((touch.clientY - rect.top)  / rect.height - 0.5) * 2;
+    this._currentTilt = { x, y };
+    this._onTilt({ x, y });
+  }
+
+  _startReturnAnimation() {
+    if (this._returnRafId !== null) { cancelAnimationFrame(this._returnRafId); this._returnRafId = null; }
+    const DURATION = 600;
+    const startTilt = { x: this._currentTilt.x, y: this._currentTilt.y };
+    let startTime = null;
+    const animate = (timestamp) => {
+      if (startTime === null) startTime = timestamp;
+      const elapsed  = timestamp - startTime;
+      const progress = Math.min(elapsed / DURATION, 1);
+      const t = 1 - Math.pow(1 - progress, 3);
+      const x = startTilt.x * (1 - t);
+      const y = startTilt.y * (1 - t);
+      this._currentTilt = { x, y };
+      this._onTilt({ x, y });
+      if (progress < 1) {
+        this._returnRafId = requestAnimationFrame(animate);
+      } else {
+        this._currentTilt = { x: 0, y: 0 };
+        this._onTilt({ x: 0, y: 0 });
+        this._returnRafId = null;
+      }
+    };
+    this._returnRafId = requestAnimationFrame(animate);
+  }
+}
+
+class PermissionManager {
+  constructor(onGranted, onDenied) {
+    this._onGranted = onGranted;
+    this._onDenied  = onDenied;
+    this._overlay   = null;
+  }
+
+  needsPermission() {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') return true;
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function') return true;
+    return false;
+  }
+
+  showPrompt(triggerElement) {
+    this._overlay = this._buildOverlay();
+    triggerElement.appendChild(this._overlay);
+  }
+
+  async requestPermission() {
+    try {
+      const requester =
+        (typeof DeviceOrientationEvent !== 'undefined' &&
+         typeof DeviceOrientationEvent.requestPermission === 'function')
+          ? DeviceOrientationEvent.requestPermission.bind(DeviceOrientationEvent)
+          : DeviceMotionEvent.requestPermission.bind(DeviceMotionEvent);
+      const result = await requester();
+      this._removeOverlay();
+      if (result === 'granted') this._onGranted(); else this._onDenied();
+    } catch (err) {
+      console.warn('DeviceOrientationEvent.requestPermission error:', err);
+      this._removeOverlay();
+      this._onDenied();
+    }
+  }
+
+  _buildOverlay() {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position:absolute;inset:0;z-index:10;background:rgba(0,0,0,0.5);
+      display:flex;align-items:center;justify-content:center;
+      border-radius:inherit;cursor:pointer;
+    `;
+    const label = document.createElement('p');
+    label.textContent = 'Tap to enable holographic effect';
+    label.style.cssText = `
+      color:#fff;font-family:'Geist Mono','Courier New',monospace;
+      font-size:14px;font-weight:500;text-align:center;
+      padding:0 20px;margin:0;pointer-events:none;
+    `;
+    overlay.appendChild(label);
+    overlay.addEventListener('click', () => this.requestPermission(), { once: true });
+    return overlay;
+  }
+
+  _removeOverlay() {
+    if (this._overlay && this._overlay.parentNode) {
+      this._overlay.parentNode.removeChild(this._overlay);
+      this._overlay = null;
+    }
+  }
+}
+
+class HolographicCard {
+  constructor(containerElement, options) {
+    this._container = containerElement;
+    this._options   = options || {};
+    this._wrapperEl = null;
+    this._cardEl    = null;
+    this._content   = null;
+    this._holoLayer = null;
+    this._specular  = null;
+    this._permission  = null;
+    this._orientation = null;
+    this._mouse       = null;
+    this._observer    = null;
+    this._motionQuery    = null;
+    this._motionListener = null;
+    this._state = {
+      currentTilt:  { x: 0, y: 0 },
+      pendingTilt:  { x: 0, y: 0 },
+      isRunning:    false,
+      rafId:        null,
+      mode:         'orientation',
+      isVisible:    true,
+      reducedMotion: false,
+    };
+    this._tick             = this._tick.bind(this);
+    this._onTiltUpdate     = this._onTiltUpdate.bind(this);
+    this._activateFallback = this._activateFallback.bind(this);
+  }
+
+  init() {
+    this._wrapperEl = document.createElement('div');
+    this._wrapperEl.className = 'card-wrapper';
+    this._cardEl = document.createElement('div');
+    this._cardEl.className = 'card';
+    this._wrapperEl.appendChild(this._cardEl);
+    this._container.appendChild(this._wrapperEl);
+
+    this._motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this._state.reducedMotion = this._motionQuery.matches;
+    this._motionListener = (e) => { this._state.reducedMotion = e.matches; };
+    this._motionQuery.addEventListener('change', this._motionListener);
+
+    this._content = new CardContent(this._cardEl);
+    this._content.init();
+
+    this._holoLayer = new HolographicLayer(this._cardEl, {
+      opacity: this._options.holoOpacity != null ? this._options.holoOpacity : 0.55,
+    });
+    this._holoLayer.init();
+
+    this._specular = new SpecularHighlight(this._cardEl, {
+      intensity: this._options.specIntensity != null ? this._options.specIntensity : 0.8,
+    });
+    this._specular.init();
+
+    this._permission = new PermissionManager(
+      () => { this._startOrientationController(); },
+      () => { this._activateFallback(); }
+    );
+
+    if (this._permission.needsPermission()) {
+      this._permission.showPrompt(this._cardEl);
+    } else {
+      this._startOrientationController();
+    }
+
+    if (typeof IntersectionObserver !== 'undefined') {
+      this._observer = new IntersectionObserver((entries) => {
+        const visible = entries[0].isIntersecting;
+        this._state.isVisible = visible;
+        if (visible && this._state.isRunning && this._state.rafId === null) {
+          this._state.rafId = requestAnimationFrame(this._tick);
+        }
+      }, { threshold: 0.1 });
+      this._observer.observe(this._cardEl);
+    } else {
+      this._state.isVisible = true;
+    }
+
+    this._state.isRunning = true;
+    this._state.rafId = requestAnimationFrame(this._tick);
+  }
+
+  destroy() {
+    this._state.isRunning = false;
+    if (this._state.rafId !== null) { cancelAnimationFrame(this._state.rafId); this._state.rafId = null; }
+    if (this._observer) { this._observer.disconnect(); this._observer = null; }
+    if (this._motionQuery && this._motionListener) {
+      this._motionQuery.removeEventListener('change', this._motionListener);
+      this._motionListener = null; this._motionQuery = null;
+    }
+    if (this._orientation) { this._orientation.stop(); this._orientation = null; }
+    if (this._mouse)       { this._mouse.stop();       this._mouse       = null; }
+    if (this._content)   { this._content.destroy();   this._content   = null; }
+    if (this._holoLayer) { this._holoLayer.destroy();  this._holoLayer = null; }
+    if (this._specular)  { this._specular.destroy();   this._specular  = null; }
+    if (this._wrapperEl && this._wrapperEl.parentNode) {
+      this._wrapperEl.parentNode.removeChild(this._wrapperEl);
+    }
+    this._wrapperEl = null;
+    this._cardEl    = null;
+  }
+
+  _startOrientationController() {
+    this._orientation = new OrientationController(this._onTiltUpdate);
+    this._orientation.start();
+  }
+
+  _writeCSSVars(tilt) {
+    const s = this._cardEl.style;
+    s.setProperty('--tilt-x',     tilt.x);
+    s.setProperty('--tilt-y',     tilt.y);
+    s.setProperty('--tilt-deg-x', tilt.y * 25);
+    s.setProperty('--tilt-deg-y', tilt.x * 25);
+    s.setProperty('--holo-angle', 180 + tilt.x * 45);
+    s.setProperty('--holo-x',     (tilt.x * 0.5 + 0.5) * 100);
+    s.setProperty('--holo-y',     (tilt.y * 0.5 + 0.5) * 100);
+    s.setProperty('--spec-x',     (tilt.x * 0.5 + 0.5) * 100);
+    s.setProperty('--spec-y',     (tilt.y * 0.5 + 0.5) * 100);
+    s.setProperty('--shadow-x',   tilt.x * -28);
+    s.setProperty('--shadow-y',   tilt.y * -28);
+  }
+
+  _onTiltUpdate(tilt) {
+    if (tilt === null) { this._activateFallback(); }
+    else { this._state.pendingTilt = tilt; }
+  }
+
+  _tick() {
+    if (!this._state.isRunning || !this._state.isVisible) {
+      this._state.rafId = null;
+      return;
+    }
+    const tilt = this._state.reducedMotion ? { x: 0, y: 0 } : this._state.pendingTilt;
+    this._writeCSSVars(tilt);
+    this._state.currentTilt = tilt;
+    this._state.rafId = requestAnimationFrame(this._tick);
+  }
+
+  _activateFallback() {
+    if (this._orientation) { this._orientation.stop(); this._orientation = null; }
+    if (this._state.mode === 'fallback') return;
+    this._state.mode = 'fallback';
+    this._mouse = new MouseController(this._cardEl, this._onTiltUpdate);
+    this._mouse.start();
+  }
+}
+
+// ─── Editor bootstrap ─────────────────────────────────────────────────────────
+
+const editorState = {
+  sensitivity: 25,
+  holoSweep:   45,
+};
+
+// Init card
+const card = new HolographicCard(document.getElementById('card-container'));
+card.init();
+
+// Monkey-patch _writeCSSVars to apply editor sensitivity + sweep
+const _origWriteCSSVars = card._writeCSSVars.bind(card);
+card._writeCSSVars = function(tilt) {
+  _origWriteCSSVars(tilt);
+  const s = card._cardEl.style;
+  s.setProperty('--tilt-deg-x', tilt.y * editorState.sensitivity);
+  s.setProperty('--tilt-deg-y', tilt.x * editorState.sensitivity);
+  s.setProperty('--holo-angle', 180 + tilt.x * editorState.holoSweep);
+};
+
+// ─── Helper: get card DOM refs ────────────────────────────────────────────────
+
+function getCardEl()     { return card._cardEl; }
+function getNameEl()     { return card._content && card._content._nameEl; }
+function getTitleEl()    { return card._content && card._content._titleEl; }
+function getCompanyEl()  { return card._content && card._content._companyEl; }
+function getHoloEl()     { return getCardEl() && getCardEl().querySelector('.holo-layer'); }
+function getSpecularEl() { return getCardEl() && getCardEl().querySelector('.specular-layer'); }
+
+// ─── TEXT controls ────────────────────────────────────────────────────────────
+
+document.getElementById('input-line1').addEventListener('input', function() {
+  const el = getNameEl();
+  if (el) el.textContent = this.value;
+});
+
+document.getElementById('input-line2').addEventListener('input', function() {
+  const el = getTitleEl();
+  if (el) el.textContent = this.value;
+});
+
+document.getElementById('input-line3').addEventListener('input', function() {
+  const el = getCompanyEl();
+  if (el) el.textContent = this.value;
+});
+
+// ─── CARD COLOR ───────────────────────────────────────────────────────────────
+
+function wireColorPicker(pickerId, swatchId, hexId, onChange) {
+  const picker = document.getElementById(pickerId);
+  const swatch = document.getElementById(swatchId);
+  const hexEl  = document.getElementById(hexId);
+
+  picker.addEventListener('input', function() {
+    swatch.style.background = this.value;
+    hexEl.textContent = this.value;
+    onChange(this.value);
+  });
+}
+
+wireColorPicker('picker-card-bg', 'swatch-card-bg', 'hex-card-bg', (val) => {
+  const el = getCardEl();
+  if (el) el.style.backgroundColor = val;
+});
+
+// ─── TEXT COLORS ──────────────────────────────────────────────────────────────
+
+wireColorPicker('picker-color1', 'swatch-color1', 'hex-color1', (val) => {
+  const el = getNameEl();
+  if (el) el.style.color = val;
+});
+
+wireColorPicker('picker-color2', 'swatch-color2', 'hex-color2', (val) => {
+  const el = getTitleEl();
+  if (el) el.style.color = val;
+});
+
+wireColorPicker('picker-color3', 'swatch-color3', 'hex-color3', (val) => {
+  const el = getCompanyEl();
+  if (el) el.style.color = val;
+});
+
+// ─── HOLOGRAPHIC sliders ──────────────────────────────────────────────────────
+
+function wireSlider(sliderId, valId, decimals, onChange) {
+  const slider = document.getElementById(sliderId);
+  const valEl  = document.getElementById(valId);
+
+  slider.addEventListener('input', function() {
+    const v = parseFloat(this.value);
+    valEl.textContent = v.toFixed(decimals);
+    onChange(v);
+  });
+}
+
+wireSlider('slider-holo', 'val-holo', 2, (v) => {
+  const el = getHoloEl();
+  if (el) el.style.opacity = v;
+});
+
+wireSlider('slider-spec', 'val-spec', 2, (v) => {
+  const el = getSpecularEl();
+  if (el) el.style.setProperty('--spec-intensity', v);
+});
+
+wireSlider('slider-tilt', 'val-tilt', 0, (v) => {
+  editorState.sensitivity = v;
+});
+
+wireSlider('slider-sweep', 'val-sweep', 0, (v) => {
+  editorState.holoSweep = v;
+});
+
+// ─── IMAGE upload ─────────────────────────────────────────────────────────────
+
+const uploadZone   = document.getElementById('upload-zone');
+const fileInput    = document.getElementById('file-input');
+const previewWrap  = document.getElementById('image-preview-wrap');
+const thumbImg     = document.getElementById('image-thumb');
+const thumbName    = document.getElementById('image-thumb-name');
+const btnRemove    = document.getElementById('btn-remove-image');
+
+let cardBgImageEl  = null;
+let cardBgOverlay  = null;
+
+function applyCardImage(dataUrl, fileName) {
+  const cardEl = getCardEl();
+  if (!cardEl) return;
+
+  // Create bg image div if not present
+  if (!cardBgImageEl) {
+    cardBgImageEl = document.createElement('div');
+    cardBgImageEl.className = 'card-bg-image';
+    cardEl.insertBefore(cardBgImageEl, cardEl.firstChild);
+  }
+  if (!cardBgOverlay) {
+    cardBgOverlay = document.createElement('div');
+    cardBgOverlay.className = 'card-bg-overlay';
+    cardEl.insertBefore(cardBgOverlay, cardEl.firstChild);
+  }
+
+  cardBgImageEl.style.backgroundImage = `url(${dataUrl})`;
+
+  // Show preview
+  thumbImg.src = dataUrl;
+  thumbName.textContent = fileName || 'image';
+  previewWrap.classList.add('visible');
+}
+
+function removeCardImage() {
+  if (cardBgImageEl && cardBgImageEl.parentNode) {
+    cardBgImageEl.parentNode.removeChild(cardBgImageEl);
+    cardBgImageEl = null;
+  }
+  if (cardBgOverlay && cardBgOverlay.parentNode) {
+    cardBgOverlay.parentNode.removeChild(cardBgOverlay);
+    cardBgOverlay = null;
+  }
+  thumbImg.src = '';
+  thumbName.textContent = '—';
+  previewWrap.classList.remove('visible');
+  fileInput.value = '';
+}
+
+function handleFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = (e) => applyCardImage(e.target.result, file.name);
+  reader.readAsDataURL(file);
+}
+
+fileInput.addEventListener('change', function() {
+  if (this.files && this.files[0]) handleFile(this.files[0]);
+});
+
+btnRemove.addEventListener('click', removeCardImage);
+
+// Drag & drop
+uploadZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadZone.classList.add('drag-over');
+});
+
+uploadZone.addEventListener('dragleave', () => {
+  uploadZone.classList.remove('drag-over');
+});
+
+uploadZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+// Expose destroy globally
+window.destroy = () => card.destroy();
+</script>
+</body>
+</html>

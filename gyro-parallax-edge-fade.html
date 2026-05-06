@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gyro Parallax Effect</title>
+  <title>Gyro Parallax Effect — Edge Fade</title>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -56,13 +56,23 @@ uniform vec2 uResolution;
 // The image occupies canvas UV region [zw, zw + xy].
 // To convert a canvas UV to an image UV: imageUV = (canvasUV - zw) / xy
 uniform vec4 uUVTransform;
+// uFadeWidth: fraction of the image (per side) over which the edge fade occurs.
+// e.g. 0.10 = fade starts 10% in from each edge, blending to background color.
+uniform float uFadeWidth;
 varying vec2 vUV;
+
+// Smooth fade mask: returns 1.0 in the center, fading to 0.0 within fadeWidth
+// of each edge of the image UV [0,1] space. Uses smoothstep for a soft curve.
+float edgeFade(vec2 uv, float fadeWidth) {
+  vec2 d = smoothstep(0.0, fadeWidth, uv) * smoothstep(0.0, fadeWidth, 1.0 - uv);
+  return d.x * d.y;
+}
+
 void main() {
   vec2 scale  = uUVTransform.xy;
   vec2 offset = uUVTransform.zw;
 
-  // Check if this canvas pixel falls in the letterbox/pillarbox bars.
-  // If so, render the background color and skip sampling.
+  // Letterbox/pillarbox bars → background color
   if (vUV.x < offset.x || vUV.x > offset.x + scale.x ||
       vUV.y < offset.y || vUV.y > offset.y + scale.y) {
     gl_FragColor = vec4(0.067, 0.067, 0.067, 1.0); // #111
@@ -74,16 +84,22 @@ void main() {
 
   float depth = texture2D(uDepthMap, imageUV).r;
   // Invert depth: far pixels (dark, depth≈0) move most; near pixels (bright, depth≈1) move least.
-  // This produces correct parallax — foreground stays locked, background drifts.
-  // The offset is in image UV space: divide by scale to convert pixel displacement to image UV units.
   vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
   vec2 sampledUV = imageUV + parallaxOffset;
 
-  // Clamp to [0, 1] image UV space to prevent edge smearing / duplication
-  // artifacts when the parallax offset pushes outside the image bounds.
+  // Clamp to prevent edge smearing (the fade will hide the hard edge anyway)
   sampledUV = clamp(sampledUV, 0.0, 1.0);
 
   vec4 color = texture2D(uSourceImage, sampledUV);
+
+  // Compute fade mask based on the *original* imageUV (not the displaced one),
+  // so the fade zone is fixed to the image border regardless of tilt direction.
+  float fade = edgeFade(imageUV, uFadeWidth);
+
+  // Blend image toward background color (#111) at the edges
+  vec3 bg = vec3(0.067, 0.067, 0.067);
+  color.rgb = mix(bg, color.rgb, fade);
+
   gl_FragColor = color;
 }
 `;
@@ -151,6 +167,9 @@ void main() {
           ? options.displacementScale : 30;
         this._smoothingFactor = (options && options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
+        // fadeWidth: fraction of image faded to background on each edge (0–0.3).
+        this._fadeWidth = (options && options.fadeWidth != null)
+          ? options.fadeWidth : 0.10;
 
         this._currentTilt      = { x: 0, y: 0 };
         this._targetTilt       = { x: 0, y: 0 };
@@ -240,6 +259,7 @@ void main() {
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution:        gl.getUniformLocation(program, 'uResolution'),
           uUVTransform:       gl.getUniformLocation(program, 'uUVTransform'),
+          uFadeWidth:         gl.getUniformLocation(program, 'uFadeWidth'),
         };
 
         // Bind texture samplers to their units (set once, they don't change)
@@ -357,7 +377,8 @@ void main() {
         );
         gl.uniform4f(u.uUVTransform, scaleX, scaleY, offsetX, offsetY);
 
-        // Draw the full-screen quad (2 triangles = 6 vertices)
+        // uFadeWidth: edge fade band width in image UV space
+        gl.uniform1f(u.uFadeWidth, this._fadeWidth);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
         // Update last-rendered tilt
@@ -452,6 +473,7 @@ void main() {
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution:        gl.getUniformLocation(program, 'uResolution'),
           uUVTransform:       gl.getUniformLocation(program, 'uUVTransform'),
+          uFadeWidth:         gl.getUniformLocation(program, 'uFadeWidth'),
         };
 
         // Re-bind texture samplers to their units
@@ -857,6 +879,7 @@ void main() {
        * @param {string}  options.depthMapUrl
        * @param {number}  [options.displacementScale=30]
        * @param {number}  [options.smoothingFactor=0.1]
+       * @param {number}  [options.fadeWidth=0.10]  Fraction of image faded to background on each edge.
        */
       constructor(canvas, options) {
         this._canvas           = canvas;
@@ -866,6 +889,8 @@ void main() {
           ? options.displacementScale : 30;
         this._smoothingFactor  = (options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
+        this._fadeWidth        = (options.fadeWidth != null)
+          ? options.fadeWidth : 0.10;
 
         this._targetTilt       = { x: 0, y: 0 };
         this._activeController = null;
@@ -1000,6 +1025,7 @@ void main() {
           {
             displacementScale: this._displacementScale,
             smoothingFactor:   this._smoothingFactor,
+            fadeWidth:         this._fadeWidth,
           }
         );
 

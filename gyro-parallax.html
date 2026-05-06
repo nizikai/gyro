@@ -772,37 +772,38 @@ void main() {
        * - On any other result: removes the overlay and calls onDenied().
        * - On throw: logs via console.warn, removes the overlay, calls onDenied().
        */
-      async requestPermission() {
-        try {
-          let result;
+      requestPermission() {
+        // IMPORTANT: DeviceOrientationEvent.requestPermission() MUST be called
+        // synchronously inside the user-gesture handler on iOS — no await before
+        // the call, otherwise iOS discards the gesture context and silently denies.
+        let permissionPromise;
 
-          if (
-            typeof DeviceOrientationEvent !== 'undefined' &&
-            typeof DeviceOrientationEvent.requestPermission === 'function'
-          ) {
-            result = await DeviceOrientationEvent.requestPermission();
-          } else if (
-            typeof DeviceMotionEvent !== 'undefined' &&
-            typeof DeviceMotionEvent.requestPermission === 'function'
-          ) {
-            result = await DeviceMotionEvent.requestPermission();
-          } else {
-            // No permission API available — treat as denied
-            result = 'denied';
-          }
+        if (
+          typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function'
+        ) {
+          permissionPromise = DeviceOrientationEvent.requestPermission();
+        } else if (
+          typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function'
+        ) {
+          permissionPromise = DeviceMotionEvent.requestPermission();
+        } else {
+          permissionPromise = Promise.resolve('denied');
+        }
 
+        permissionPromise.then((result) => {
           this._removeOverlay();
-
           if (result === 'granted') {
             this._onGranted();
           } else {
             this._onDenied();
           }
-        } catch (err) {
+        }).catch((err) => {
           console.warn('PermissionManager: requestPermission() threw:', err);
           this._removeOverlay();
           this._onDenied();
-        }
+        });
       }
 
       /**

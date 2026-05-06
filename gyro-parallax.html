@@ -502,7 +502,7 @@ void main() {
         this._fallbackTimer = setTimeout(() => {
           this._fallbackTimer = null;
           this._onTilt(null);
-        }, 500);
+        }, 2000);
       }
 
       /**
@@ -1077,37 +1077,50 @@ void main() {
        */
       _startInputController() {
         const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        console.log('[ParallaxEffect] isTouchDevice:', isTouchDevice, '| maxTouchPoints:', navigator.maxTouchPoints);
 
         if (isTouchDevice) {
           // Mobile path: try gyroscope, with iOS 13+ permission gate if needed
           const permManager = new PermissionManager(
-            () => { this._startOrientationController(); },
-            () => { this._startMouseController(); }
+            () => {
+              console.log('[ParallaxEffect] Permission granted — starting OrientationController');
+              this._startOrientationController();
+            },
+            () => {
+              console.warn('[ParallaxEffect] Permission denied — falling back to MouseController');
+              this._startMouseController();
+            }
           );
 
           if (permManager.needsPermission()) {
+            console.log('[ParallaxEffect] iOS permission required — showing prompt');
             permManager.showPrompt(this._canvas);
           } else {
+            console.log('[ParallaxEffect] No permission gate needed — starting OrientationController');
             this._startOrientationController();
           }
         } else {
           // Desktop path: mouse hover directly, no gyro attempt
+          console.log('[ParallaxEffect] Desktop detected — starting MouseController');
           this._startMouseController();
         }
       }
 
       /**
        * Starts the OrientationController. If no deviceorientation event fires
-       * within 500ms, falls back to MouseController.
+       * within 2000ms, falls back to MouseController.
        */
       _startOrientationController() {
+        console.log('[ParallaxEffect] OrientationController starting — waiting for deviceorientation events...');
         const controller = new OrientationController((tilt) => {
           if (tilt === null) {
-            // 500ms timeout — no deviceorientation event; fall back to mouse
+            // Timeout — no deviceorientation event; fall back to mouse
+            console.warn('[ParallaxEffect] No deviceorientation event received — falling back to MouseController');
             this._activeController = null;
             this._startMouseController();
             return;
           }
+          console.log('[ParallaxEffect] Gyro tilt:', tilt.x.toFixed(3), tilt.y.toFixed(3));
           if (!this._motionFrozen) {
             this._renderer.setTargetTilt(tilt);
           }
@@ -1213,6 +1226,48 @@ void main() {
       // Accessibility: describe the canvas for screen readers (Requirement 10.3)
       canvas.setAttribute('aria-label', 'Parallax depth photo — tilt your device or move the mouse to explore the scene');
 
+      // --- Debug HUD (remove in production) ---
+      const hud = document.createElement('div');
+      hud.style.cssText = [
+        'position: fixed',
+        'top: 10px',
+        'left: 10px',
+        'background: rgba(0,0,0,0.75)',
+        'color: #0f0',
+        'font: 12px/1.6 monospace',
+        'padding: 8px 12px',
+        'border-radius: 6px',
+        'z-index: 999',
+        'pointer-events: none',
+        'white-space: pre',
+      ].join('; ');
+      hud.textContent = 'Initializing…';
+      document.body.appendChild(hud);
+
+      // Patch window to intercept deviceorientation events for the HUD
+      let hudController = 'none';
+      let hudRaw = { beta: '—', gamma: '—' };
+      let hudTilt = { x: '—', y: '—' };
+
+      window.addEventListener('deviceorientation', (e) => {
+        hudRaw.beta  = e.beta  != null ? e.beta.toFixed(1)  : 'null';
+        hudRaw.gamma = e.gamma != null ? e.gamma.toFixed(1) : 'null';
+      });
+
+      function updateHUD() {
+        hud.textContent = [
+          `controller : ${hudController}`,
+          `raw beta   : ${hudRaw.beta}°`,
+          `raw gamma  : ${hudRaw.gamma}°`,
+          `tilt x     : ${hudTilt.x}`,
+          `tilt y     : ${hudTilt.y}`,
+          `touch pts  : ${navigator.maxTouchPoints}`,
+          `DOE perm   : ${typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function' ? 'required' : 'not required'}`,
+        ].join('\n');
+        requestAnimationFrame(updateHUD);
+      }
+      updateHUD();
+
       const effect = new ParallaxEffect(canvas, {
         sourceImageUrl:    'input.jpg',
         depthMapUrl:       'output_depthanything.png',
@@ -1222,7 +1277,42 @@ void main() {
 
       effect.addEventListener('error', (e) => {
         console.error('[ParallaxEffect] Error:', e.detail.message);
+        hud.textContent = 'ERROR: ' + e.detail.message;
       });
+
+      // Monkey-patch setTargetTilt to update HUD
+      const origSetTargetTilt = effect._renderer
+        ? effect._renderer.setTargetTilt.bind(effect._renderer)
+        : null;
+
+      // We'll patch after init since renderer is created inside init()
+      const origInit = effect.init.bind(effect);
+      effect.init = async function() {
+        await origInit();
+        if (effect._renderer) {
+          const orig = effect._renderer.setTargetTilt.bind(effect._renderer);
+          effect._renderer.setTargetTilt = function(tilt) {
+            hudTilt.x = tilt.x.toFixed(3);
+            hudTilt.y = tilt.y.toFixed(3);
+            orig(tilt);
+          };
+        }
+        if (effect._activeController instanceof OrientationController) {
+          hudController = 'gyro';
+        } else if (effect._activeController instanceof MouseController) {
+          hudController = 'mouse';
+        }
+        // Poll controller type since it may switch after fallback
+        setInterval(() => {
+          if (effect._activeController instanceof OrientationController) {
+            hudController = 'gyro';
+          } else if (effect._activeController instanceof MouseController) {
+            hudController = 'mouse';
+          } else {
+            hudController = 'none';
+          }
+        }, 500);
+      };
 
       effect.init();
     });

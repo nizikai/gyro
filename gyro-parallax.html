@@ -37,7 +37,9 @@
 attribute vec2 aPosition;
 varying vec2 vUV;
 void main() {
-  vUV = aPosition * 0.5 + 0.5;
+  // Map clip-space [-1,1] to UV [0,1], flipping Y so (0,0) is top-left
+  // (matches HTML image coordinate convention without needing UNPACK_FLIP_Y_WEBGL)
+  vUV = vec2(aPosition.x * 0.5 + 0.5, 0.5 - aPosition.y * 0.5);
   gl_Position = vec4(aPosition, 0.0, 1.0);
 }
 `;
@@ -86,17 +88,17 @@ void main() {
       let scaleX, scaleY, offsetX, offsetY;
 
       if (imageAspect > canvasAspect) {
-        // Image is wider than canvas → fit by width, letterbox top/bottom
-        scaleX  = 1.0;
-        scaleY  = canvasAspect / imageAspect;
-        offsetX = 0.0;
-        offsetY = (1.0 - scaleY) / 2.0;
-      } else {
-        // Image is taller than canvas → fit by height, pillarbox left/right
+        // Image is wider than canvas → fit by height (cover), crop sides
         scaleX  = imageAspect / canvasAspect;
         scaleY  = 1.0;
         offsetX = (1.0 - scaleX) / 2.0;
         offsetY = 0.0;
+      } else {
+        // Image is taller than canvas → fit by width (cover), crop top/bottom
+        scaleX  = 1.0;
+        scaleY  = canvasAspect / imageAspect;
+        offsetX = 0.0;
+        offsetY = (1.0 - scaleY) / 2.0;
       }
 
       return { scaleX, scaleY, offsetX, offsetY };
@@ -153,6 +155,9 @@ void main() {
                 || this._canvas.getContext('webgl2');
         if (!gl) return false;
         this._gl = gl;
+
+        // Set viewport to match canvas pixel dimensions immediately
+        gl.viewport(0, 0, this._canvas.width, this._canvas.height);
 
         // --- 2. Compile shaders and link program ---
         const vertShader = this._compileShader(gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
@@ -256,9 +261,6 @@ void main() {
         const texture = gl.createTexture();
         gl.activeTexture(gl.TEXTURE0 + unit);
         gl.bindTexture(gl.TEXTURE_2D, texture);
-
-        // Flip Y so WebGL's bottom-left origin matches the image's top-left origin
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
         // Wrapping: CLAMP_TO_EDGE on both axes (Requirement 6.5)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1213,8 +1215,8 @@ void main() {
       const effect = new ParallaxEffect(canvas, {
         sourceImageUrl:    'input.jpg',
         depthMapUrl:       'output_depthanything.png',
-        displacementScale: 30,
-        smoothingFactor:   0.1,
+        displacementScale: 20,
+        smoothingFactor:   0.06,
       });
 
       effect.addEventListener('error', (e) => {
@@ -1504,24 +1506,19 @@ void main() {
               const imageAspect  = iw / ih;
               const canvasAspect = cw / ch;
 
-              // The rendered image aspect ratio must equal the source image aspect ratio.
-              // In UV space: rendered width = scaleX, rendered height = scaleY.
-              // In pixel space the aspect ratio is (scaleX * cw) / (scaleY * ch).
+              // Cover fit: the rendered aspect ratio in pixel space must equal the image aspect ratio.
+              // scaleX/scaleY are UV scales; pixel aspect = (scaleX * cw) / (scaleY * ch).
               const renderedAspect = (scaleX * cw) / (scaleY * ch);
               const aspectOk = Math.abs(renderedAspect - imageAspect) < 1e-6;
 
-              // Image must be centered: offsets must be symmetric
-              const centeredX = imageAspect <= canvasAspect
-                ? Math.abs(offsetX - (1 - scaleX) / 2) < 1e-6
-                : Math.abs(offsetX) < 1e-6;
-              const centeredY = imageAspect > canvasAspect
-                ? Math.abs(offsetY - (1 - scaleY) / 2) < 1e-6
-                : Math.abs(offsetY) < 1e-6;
+              // Cover fit: at least one of scaleX or scaleY must be >= 1.0 (image fills canvas)
+              const coversCanvas = scaleX >= 1.0 - 1e-6 || scaleY >= 1.0 - 1e-6;
 
-              // No stretching: exactly one of scaleX or scaleY must be 1.0
-              const noStretch = Math.abs(scaleX - 1.0) < 1e-6 || Math.abs(scaleY - 1.0) < 1e-6;
+              // Image must be centered
+              const centeredX = Math.abs(offsetX - (1 - scaleX) / 2) < 1e-6;
+              const centeredY = Math.abs(offsetY - (1 - scaleY) / 2) < 1e-6;
 
-              return aspectOk && centeredX && centeredY && noStretch;
+              return aspectOk && coversCanvas && centeredX && centeredY;
             }
           ), { numRuns: 100 });
         });

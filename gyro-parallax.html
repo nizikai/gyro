@@ -56,31 +56,34 @@ uniform vec2 uResolution;
 // The image occupies canvas UV region [zw, zw + xy].
 // To convert a canvas UV to an image UV: imageUV = (canvasUV - zw) / xy
 uniform vec4 uUVTransform;
+// uOverscan: fraction of the image cropped on each side (e.g. 0.08 = 8%).
+// The visible window is shrunk inward by this amount, giving the parallax
+// displacement room to shift without ever reaching the image edge.
+uniform float uOverscan;
 varying vec2 vUV;
 void main() {
   vec2 scale  = uUVTransform.xy;
   vec2 offset = uUVTransform.zw;
 
   // Check if this canvas pixel falls in the letterbox/pillarbox bars.
-  // If so, render the background color and skip sampling.
   if (vUV.x < offset.x || vUV.x > offset.x + scale.x ||
       vUV.y < offset.y || vUV.y > offset.y + scale.y) {
     gl_FragColor = vec4(0.067, 0.067, 0.067, 1.0); // #111
     return;
   }
 
-  // Map canvas UV → image UV [0, 1]
+  // Map canvas UV → image UV [0, 1], then apply overscan crop.
+  // The visible image window becomes [uOverscan, 1-uOverscan] on each axis,
+  // so the parallax has a hidden margin to shift into on all sides.
   vec2 imageUV = (vUV - offset) / scale;
+  imageUV = imageUV * (1.0 - 2.0 * uOverscan) + uOverscan;
 
   float depth = texture2D(uDepthMap, imageUV).r;
   // Invert depth: far pixels (dark, depth≈0) move most; near pixels (bright, depth≈1) move least.
-  // This produces correct parallax — foreground stays locked, background drifts.
-  // The offset is in image UV space: divide by scale to convert pixel displacement to image UV units.
   vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
   vec2 sampledUV = imageUV + parallaxOffset;
 
-  // Clamp to [0, 1] image UV space to prevent edge smearing / duplication
-  // artifacts when the parallax offset pushes outside the image bounds.
+  // Hard clamp as a safety net — with correct overscan this should never trigger.
   sampledUV = clamp(sampledUV, 0.0, 1.0);
 
   vec4 color = texture2D(uSourceImage, sampledUV);
@@ -151,6 +154,10 @@ void main() {
           ? options.displacementScale : 30;
         this._smoothingFactor = (options && options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
+        // Overscan: fraction of image cropped on each side to give parallax room to move.
+        // 0.08 = 8% margin — enough headroom for displacementScale=60 without visible crop.
+        this._overscan = (options && options.overscan != null)
+          ? options.overscan : 0.08;
 
         this._currentTilt      = { x: 0, y: 0 };
         this._targetTilt       = { x: 0, y: 0 };
@@ -240,6 +247,7 @@ void main() {
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution:        gl.getUniformLocation(program, 'uResolution'),
           uUVTransform:       gl.getUniformLocation(program, 'uUVTransform'),
+          uOverscan:          gl.getUniformLocation(program, 'uOverscan'),
         };
 
         // Bind texture samplers to their units (set once, they don't change)
@@ -357,6 +365,9 @@ void main() {
         );
         gl.uniform4f(u.uUVTransform, scaleX, scaleY, offsetX, offsetY);
 
+        // uOverscan: hidden margin on each side that absorbs parallax displacement
+        gl.uniform1f(u.uOverscan, this._overscan);
+
         // Draw the full-screen quad (2 triangles = 6 vertices)
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -452,6 +463,7 @@ void main() {
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution:        gl.getUniformLocation(program, 'uResolution'),
           uUVTransform:       gl.getUniformLocation(program, 'uUVTransform'),
+          uOverscan:          gl.getUniformLocation(program, 'uOverscan'),
         };
 
         // Re-bind texture samplers to their units
@@ -857,6 +869,8 @@ void main() {
        * @param {string}  options.depthMapUrl
        * @param {number}  [options.displacementScale=30]
        * @param {number}  [options.smoothingFactor=0.1]
+       * @param {number}  [options.overscan=0.08]  Fraction of image cropped on each side
+       *                                            to give parallax room to move (0–0.2).
        */
       constructor(canvas, options) {
         this._canvas           = canvas;
@@ -866,6 +880,8 @@ void main() {
           ? options.displacementScale : 30;
         this._smoothingFactor  = (options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
+        this._overscan         = (options.overscan != null)
+          ? options.overscan : 0.08;
 
         this._targetTilt       = { x: 0, y: 0 };
         this._activeController = null;
@@ -1000,6 +1016,7 @@ void main() {
           {
             displacementScale: this._displacementScale,
             smoothingFactor:   this._smoothingFactor,
+            overscan:          this._overscan,
           }
         );
 

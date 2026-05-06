@@ -88,17 +88,17 @@ void main() {
       let scaleX, scaleY, offsetX, offsetY;
 
       if (imageAspect > canvasAspect) {
-        // Image is wider than canvas → fit by height (cover), crop sides
-        scaleX  = imageAspect / canvasAspect;
-        scaleY  = 1.0;
-        offsetX = (1.0 - scaleX) / 2.0;
-        offsetY = 0.0;
-      } else {
-        // Image is taller than canvas → fit by width (cover), crop top/bottom
+        // Image is wider than canvas → fit by width, letterbox top/bottom
         scaleX  = 1.0;
         scaleY  = canvasAspect / imageAspect;
         offsetX = 0.0;
         offsetY = (1.0 - scaleY) / 2.0;
+      } else {
+        // Image is taller than canvas → fit by height, pillarbox left/right
+        scaleX  = imageAspect / canvasAspect;
+        scaleY  = 1.0;
+        offsetX = (1.0 - scaleX) / 2.0;
+        offsetY = 0.0;
       }
 
       return { scaleX, scaleY, offsetX, offsetY };
@@ -1071,27 +1071,28 @@ void main() {
       // -----------------------------------------------------------------------
 
       /**
-       * Determines which input controller to start based on permission requirements
-       * and device capabilities.
+       * Determines which input controller to start based on device type.
+       * - Mobile/touch devices: gyroscope via OrientationController (with iOS permission gate)
+       * - Desktop: mouse hover via MouseController directly
        */
       _startInputController() {
-        const permManager = new PermissionManager(
-          // onGranted — start OrientationController
-          () => {
-            this._startOrientationController();
-          },
-          // onDenied — fall back to MouseController
-          () => {
-            this._startMouseController();
-          }
-        );
+        const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
-        if (permManager.needsPermission()) {
-          // iOS 13+: show the tap-to-enable overlay first
-          permManager.showPrompt(this._canvas);
+        if (isTouchDevice) {
+          // Mobile path: try gyroscope, with iOS 13+ permission gate if needed
+          const permManager = new PermissionManager(
+            () => { this._startOrientationController(); },
+            () => { this._startMouseController(); }
+          );
+
+          if (permManager.needsPermission()) {
+            permManager.showPrompt(this._canvas);
+          } else {
+            this._startOrientationController();
+          }
         } else {
-          // No permission gate needed — try OrientationController directly
-          this._startOrientationController();
+          // Desktop path: mouse hover directly, no gyro attempt
+          this._startMouseController();
         }
       }
 
@@ -1506,19 +1507,18 @@ void main() {
               const imageAspect  = iw / ih;
               const canvasAspect = cw / ch;
 
-              // Cover fit: the rendered aspect ratio in pixel space must equal the image aspect ratio.
-              // scaleX/scaleY are UV scales; pixel aspect = (scaleX * cw) / (scaleY * ch).
+              // Contain fit: rendered pixel aspect must equal source image aspect
               const renderedAspect = (scaleX * cw) / (scaleY * ch);
               const aspectOk = Math.abs(renderedAspect - imageAspect) < 1e-6;
 
-              // Cover fit: at least one of scaleX or scaleY must be >= 1.0 (image fills canvas)
-              const coversCanvas = scaleX >= 1.0 - 1e-6 || scaleY >= 1.0 - 1e-6;
+              // Contain fit: at least one axis fills the canvas (scale = 1.0)
+              const containsAxis = Math.abs(scaleX - 1.0) < 1e-6 || Math.abs(scaleY - 1.0) < 1e-6;
 
-              // Image must be centered
+              // Image must be centered on both axes
               const centeredX = Math.abs(offsetX - (1 - scaleX) / 2) < 1e-6;
               const centeredY = Math.abs(offsetY - (1 - scaleY) / 2) < 1e-6;
 
-              return aspectOk && coversCanvas && centeredX && centeredY;
+              return aspectOk && containsAxis && centeredX && centeredY;
             }
           ), { numRuns: 100 });
         });

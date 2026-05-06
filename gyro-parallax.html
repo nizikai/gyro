@@ -566,7 +566,7 @@ void main() {
     }
 
     // ---------------------------------------------------------------------------
-    // MouseController — reads mousemove/touchmove events, normalizes to TiltInput
+    // MouseController — desktop-only: mousemove/mouseleave, no touch events
     // ---------------------------------------------------------------------------
 
     class MouseController {
@@ -583,26 +583,18 @@ void main() {
         // Bind handlers so the same references can be removed in stop()
         this._onMouseMove  = this._onMouseMove.bind(this);
         this._onMouseLeave = this._onMouseLeave.bind(this);
-        this._onTouchMove  = this._onTouchMove.bind(this);
       }
 
-      /**
-       * Attaches mousemove, mouseleave, and touchmove (passive) listeners to
-       * the element.
-       */
+      /** Attaches mousemove and mouseleave listeners to the element. */
       start() {
         this._element.addEventListener('mousemove',  this._onMouseMove);
         this._element.addEventListener('mouseleave', this._onMouseLeave);
-        this._element.addEventListener('touchmove',  this._onTouchMove, { passive: true });
       }
 
-      /**
-       * Detaches all listeners and cancels any in-progress return animation.
-       */
+      /** Detaches all listeners and cancels any in-progress return animation. */
       stop() {
         this._element.removeEventListener('mousemove',  this._onMouseMove);
         this._element.removeEventListener('mouseleave', this._onMouseLeave);
-        this._element.removeEventListener('touchmove',  this._onTouchMove);
 
         if (this._returnRafId !== null) {
           cancelAnimationFrame(this._returnRafId);
@@ -640,29 +632,6 @@ void main() {
        */
       _onMouseLeave() {
         this._startReturnAnimation();
-      }
-
-      /**
-       * Handles touchmove events.
-       * Uses the first touch point in place of mouse coordinates with the same
-       * bounding-rect mapping.
-       * @param {TouchEvent} e
-       */
-      _onTouchMove(e) {
-        if (!e.touches || e.touches.length === 0) return;
-
-        // Cancel any in-progress return animation
-        if (this._returnRafId !== null) {
-          cancelAnimationFrame(this._returnRafId);
-          this._returnRafId = null;
-        }
-
-        const touch = e.touches[0];
-        const rect  = this._element.getBoundingClientRect();
-        const { x, y } = normalizeCursorPosition(touch.clientX, touch.clientY, rect);
-
-        this._currentTilt = { x, y };
-        this._onTilt({ x, y });
       }
 
       /**

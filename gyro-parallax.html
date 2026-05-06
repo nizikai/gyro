@@ -51,15 +51,39 @@ uniform sampler2D uDepthMap;
 uniform vec2 uTilt;
 uniform float uDisplacementScale;
 uniform vec2 uResolution;
+// uUVTransform: xy = scale (fraction of canvas the image occupies),
+//               zw = offset (canvas UV where the image starts)
+// The image occupies canvas UV region [zw, zw + xy].
+// To convert a canvas UV to an image UV: imageUV = (canvasUV - zw) / xy
 uniform vec4 uUVTransform;
 varying vec2 vUV;
 void main() {
-  vec2 imageUV = vUV * uUVTransform.xy + uUVTransform.zw;
+  vec2 scale  = uUVTransform.xy;
+  vec2 offset = uUVTransform.zw;
+
+  // Check if this canvas pixel falls in the letterbox/pillarbox bars.
+  // If so, render the background color and skip sampling.
+  if (vUV.x < offset.x || vUV.x > offset.x + scale.x ||
+      vUV.y < offset.y || vUV.y > offset.y + scale.y) {
+    gl_FragColor = vec4(0.067, 0.067, 0.067, 1.0); // #111
+    return;
+  }
+
+  // Map canvas UV → image UV [0, 1]
+  vec2 imageUV = (vUV - offset) / scale;
+
   float depth = texture2D(uDepthMap, imageUV).r;
   // Invert depth: far pixels (dark, depth≈0) move most; near pixels (bright, depth≈1) move least.
   // This produces correct parallax — foreground stays locked, background drifts.
-  vec2 offset = uTilt * (1.0 - depth) * uDisplacementScale / uResolution;
-  vec4 color = texture2D(uSourceImage, imageUV + offset);
+  // The offset is in image UV space: divide by scale to convert pixel displacement to image UV units.
+  vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
+  vec2 sampledUV = imageUV + parallaxOffset;
+
+  // Clamp to [0, 1] image UV space to prevent edge smearing / duplication
+  // artifacts when the parallax offset pushes outside the image bounds.
+  sampledUV = clamp(sampledUV, 0.0, 1.0);
+
+  vec4 color = texture2D(uSourceImage, sampledUV);
   gl_FragColor = color;
 }
 `;

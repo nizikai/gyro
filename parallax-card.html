@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parallax Card</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0c0c0e;
+      --surface:  #141416;
+      --border:   rgba(255,255,255,0.07);
+      --text:     #e8e8e8;
+      --muted:    #666;
+      --accent:   #f0f0f0;
+      --radius:   28px;
+      --panel-w:  272px;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: 'DM Mono', monospace;
+      color: var(--text);
+    }
+
+    /* ── Subtle grain overlay ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.4;
+    }
+
+    /* ── Stage ── */
+    #stage {
+      position: relative;
+      z-index: 1;
+      width: 100%; height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Card wrapper ── */
+    #card-wrap {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 32px 80px rgba(0,0,0,0.7),
+        0 8px 24px rgba(0,0,0,0.5);
+      cursor: none;
+      /* size set by JS based on image aspect */
+      width: 520px;
+      height: 340px;
+      transition: box-shadow 0.3s ease;
+    }
+
+    #card-wrap:hover {
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.12),
+        0 40px 100px rgba(0,0,0,0.8),
+        0 12px 32px rgba(0,0,0,0.6);
+    }
+
+    #card-wrap canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border-radius: var(--radius);
+    }
+
+    /* ── Custom cursor dot ── */
+    #cursor {
+      position: fixed;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.9);
+      pointer-events: none;
+      z-index: 999;
+      transform: translate(-50%, -50%);
+      transition: transform 0.1s ease, opacity 0.2s ease;
+      mix-blend-mode: difference;
+    }
+
+    #cursor.outside { opacity: 0; }
+
+    /* ── Controls panel ── */
+    #controls {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: var(--panel-w);
+      background: rgba(14, 14, 16, 0.85);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px 18px 18px;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      z-index: 100;
+      user-select: none;
+    }
+
+    #controls-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    #controls-header span {
+      font-family: 'Syne', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    #controls-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    #controls-close:hover { color: var(--text); }
+
+    .ctrl {
+      margin-bottom: 14px;
+    }
+    .ctrl:last-child { margin-bottom: 0; }
+
+    .ctrl-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+    }
+
+    .ctrl-name {
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .ctrl-val {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--accent);
+      min-width: 36px;
+      text-align: right;
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 2px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.2);
+      transition: transform 0.15s ease;
+    }
+
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+    }
+
+    input[type=range]::-moz-range-thumb {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+      cursor: pointer;
+    }
+
+    /* ── Show button ── */
+    #controls-toggle {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: rgba(14,14,16,0.85);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 15px;
+      cursor: pointer;
+      z-index: 101;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: color 0.15s, border-color 0.15s;
+    }
+    #controls-toggle:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+
+    /* ── Hint label ── */
+    #hint {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 1s ease;
+    }
+    #hint.hidden { opacity: 0; }
+  </style>
+</head>
+<body>
+
+  <div id="cursor"></div>
+
+  <div id="stage">
+    <div id="card-wrap">
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+
+  <p id="hint">Move cursor over image</p>
+
+  <!-- Controls -->
+  <div id="controls">
+    <div id="controls-header">
+      <span>Parameters</span>
+      <button id="controls-close">✕</button>
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head">
+        <span class="ctrl-name">Displacement</span>
+        <span class="ctrl-val" id="val-displacement">60</span>
+      </div>
+      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="60">
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head">
+        <span class="ctrl-name">Smoothing</span>
+        <span class="ctrl-val" id="val-smoothing">0.08</span>
+      </div>
+      <input type="range" id="sl-smoothing" min="0.01" max="0.5" step="0.01" value="0.08">
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head">
+        <span class="ctrl-name">Overscan</span>
+        <span class="ctrl-val" id="val-overscan">0.02</span>
+      </div>
+      <input type="range" id="sl-overscan" min="0" max="0.25" step="0.005" value="0.02">
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head">
+        <span class="ctrl-name">Fg Scale</span>
+        <span class="ctrl-val" id="val-fgscale">0.08</span>
+      </div>
+      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.08">
+    </div>
+  </div>
+
+  <button id="controls-toggle" title="Show controls">⚙</button>
+
+  <script>
+    // ─────────────────────────────────────────────────────────────────────────
+    // Shaders
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const VERT = `
+attribute vec2 aPosition;
+varying vec2 vUV;
+void main() {
+  vUV = vec2(aPosition.x * 0.5 + 0.5, 0.5 - aPosition.y * 0.5);
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}`;
+
+    const FRAG = `
+precision mediump float;
+uniform sampler2D uSourceImage;
+uniform sampler2D uDepthMap;
+uniform vec2  uTilt;
+uniform float uDisplacementScale;
+uniform vec2  uResolution;
+uniform vec4  uUVTransform;
+uniform float uOverscan;
+uniform float uFgScale;
+varying vec2 vUV;
+
+void main() {
+  vec2 scale  = uUVTransform.xy;
+  vec2 offset = uUVTransform.zw;
+
+  if (vUV.x < offset.x || vUV.x > offset.x + scale.x ||
+      vUV.y < offset.y || vUV.y > offset.y + scale.y) {
+    gl_FragColor = vec4(0.047, 0.047, 0.055, 1.0);
+    return;
+  }
+
+  vec2 imageUV = (vUV - offset) / scale;
+  imageUV = imageUV * (1.0 - 2.0 * uOverscan) + uOverscan;
+
+  float depth = texture2D(uDepthMap, imageUV).r;
+
+  // bright = close (moves least), dark = far (moves most)
+  vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
+
+  // Foreground scale: zoom near pixels toward center
+  vec2 fgOffset = (imageUV - 0.5) * depth * uFgScale;
+  vec2 sampledUV = clamp(imageUV + parallaxOffset - fgOffset, 0.0, 1.0);
+
+  gl_FragColor = texture2D(uSourceImage, sampledUV);
+}`;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UV transform helper
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function computeUVTransform(iw, ih, cw, ch) {
+      const ia = iw / ih, ca = cw / ch;
+      if (ia > ca) {
+        const sy = ca / ia;
+        return { scaleX: 1, scaleY: sy, offsetX: 0, offsetY: (1 - sy) / 2 };
+      } else {
+        const sx = ia / ca;
+        return { scaleX: sx, scaleY: 1, offsetX: (1 - sx) / 2, offsetY: 0 };
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Renderer
+    // ─────────────────────────────────────────────────────────────────────────
+
+    class Renderer {
+      constructor(canvas, srcImg, depthImg, opts = {}) {
+        this._canvas  = canvas;
+        this._src     = srcImg;
+        this._depth   = depthImg;
+        this._dispScale = opts.displacementScale ?? 60;
+        this._smooth    = opts.smoothingFactor   ?? 0.08;
+        this._overscan  = opts.overscan          ?? 0.02;
+        this._fgScale   = opts.fgScale           ?? 0.08;
+
+        this._cur  = { x: 0, y: 0 };
+        this._tgt  = { x: 0, y: 0 };
+        this._last = { x: Infinity, y: Infinity };
+        this._raf  = null;
+        this._tick = this._tick.bind(this);
+      }
+
+      init() {
+        const gl = this._canvas.getContext('webgl') || this._canvas.getContext('webgl2');
+        if (!gl) return false;
+        this._gl = gl;
+        gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+
+        const vs = this._shader(gl.VERTEX_SHADER,   VERT);
+        const fs = this._shader(gl.FRAGMENT_SHADER, FRAG);
+        if (!vs || !fs) return false;
+
+        const prog = gl.createProgram();
+        gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return false;
+        gl.deleteShader(vs); gl.deleteShader(fs);
+        this._prog = prog;
+        gl.useProgram(prog);
+
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+          -1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1
+        ]), gl.STATIC_DRAW);
+        const loc = gl.getAttribLocation(prog, 'aPosition');
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+        this._srcTex   = this._tex(gl, this._src,   0);
+        this._depthTex = this._tex(gl, this._depth, 1);
+
+        this._u = {
+          uSourceImage:       gl.getUniformLocation(prog, 'uSourceImage'),
+          uDepthMap:          gl.getUniformLocation(prog, 'uDepthMap'),
+          uTilt:              gl.getUniformLocation(prog, 'uTilt'),
+          uDisplacementScale: gl.getUniformLocation(prog, 'uDisplacementScale'),
+          uResolution:        gl.getUniformLocation(prog, 'uResolution'),
+          uUVTransform:       gl.getUniformLocation(prog, 'uUVTransform'),
+          uOverscan:          gl.getUniformLocation(prog, 'uOverscan'),
+          uFgScale:           gl.getUniformLocation(prog, 'uFgScale'),
+        };
+
+        gl.uniform1i(this._u.uSourceImage, 0);
+        gl.uniform1i(this._u.uDepthMap,    1);
+
+        this._raf = requestAnimationFrame(this._tick);
+        return true;
+      }
+
+      _shader(type, src) {
+        const gl = this._gl;
+        const s  = gl.createShader(type);
+        gl.shaderSource(s, src); gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          console.error(gl.getShaderInfoLog(s)); gl.deleteShader(s); return null;
+        }
+        return s;
+      }
+
+      _tex(gl, img, unit) {
+        const t = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        return t;
+      }
+
+      setTargetTilt(t) { this._tgt = t; }
+
+      resize() {
+        if (this._gl) this._gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+        this._last = { x: Infinity, y: Infinity };
+      }
+
+      _tick() {
+        const a = this._smooth;
+        this._cur.x += (this._tgt.x - this._cur.x) * a;
+        this._cur.y += (this._tgt.y - this._cur.y) * a;
+
+        const TOL = 1e-6;
+        if (Math.abs(this._cur.x - this._last.x) < TOL &&
+            Math.abs(this._cur.y - this._last.y) < TOL) {
+          this._raf = requestAnimationFrame(this._tick); return;
+        }
+
+        const gl = this._gl, u = this._u, c = this._canvas;
+        gl.uniform2f(u.uTilt, this._cur.x, this._cur.y);
+        gl.uniform1f(u.uDisplacementScale, this._dispScale);
+        gl.uniform2f(u.uResolution, c.width, c.height);
+
+        const { scaleX, scaleY, offsetX, offsetY } = computeUVTransform(
+          this._src.naturalWidth  || this._src.width,
+          this._src.naturalHeight || this._src.height,
+          c.width, c.height
+        );
+        gl.uniform4f(u.uUVTransform, scaleX, scaleY, offsetX, offsetY);
+        gl.uniform1f(u.uOverscan, this._overscan);
+        gl.uniform1f(u.uFgScale,  this._fgScale);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        this._last.x = this._cur.x;
+        this._last.y = this._cur.y;
+        this._raf = requestAnimationFrame(this._tick);
+      }
+
+      destroy() {
+        if (this._raf) cancelAnimationFrame(this._raf);
+        const gl = this._gl;
+        if (!gl) return;
+        if (this._prog)    gl.deleteProgram(this._prog);
+        if (this._srcTex)  gl.deleteTexture(this._srcTex);
+        if (this._depthTex) gl.deleteTexture(this._depthTex);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Bootstrap
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function loadImage(src) {
+      return new Promise((res, rej) => {
+        const img = new Image();
+        img.onload  = () => res(img);
+        img.onerror = () => rej(new Error('Failed to load: ' + src));
+        img.src = src;
+      });
+    }
+
+    async function main() {
+      const wrap  = document.getElementById('card-wrap');
+      const canvas = document.getElementById('canvas');
+      const cursor = document.getElementById('cursor');
+      const hint   = document.getElementById('hint');
+
+      let srcImg, depthImg;
+      try {
+        [srcImg, depthImg] = await Promise.all([
+          loadImage('input.jpeg'),
+          loadImage('midas.png'),
+        ]);
+      } catch (e) {
+        console.error(e);
+        return;
+      }
+
+      // Size the card to match image aspect ratio, fitting within viewport
+      const imgAspect = srcImg.naturalWidth / srcImg.naturalHeight;
+      const maxW = Math.min(window.innerWidth  * 0.82, 680);
+      const maxH = Math.min(window.innerHeight * 0.82, 520);
+      let cardW = maxW, cardH = maxW / imgAspect;
+      if (cardH > maxH) { cardH = maxH; cardW = maxH * imgAspect; }
+      wrap.style.width  = cardW + 'px';
+      wrap.style.height = cardH + 'px';
+
+      // Set canvas pixel dimensions
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width  = Math.round(cardW * dpr);
+      canvas.height = Math.round(cardH * dpr);
+
+      const renderer = new Renderer(canvas, srcImg, depthImg, {
+        displacementScale: 60,
+        smoothingFactor:   0.08,
+        overscan:          0.02,
+        fgScale:           0.08,
+      });
+
+      if (!renderer.init()) {
+        console.error('WebGL not available');
+        return;
+      }
+
+      // ── Mouse interaction ──────────────────────────────────────────────────
+      let inside = false;
+
+      wrap.addEventListener('mousemove', (e) => {
+        const rect = wrap.getBoundingClientRect();
+        const x = ((e.clientX - rect.left)  / rect.width  - 0.5) * 2;
+        const y = ((e.clientY - rect.top)   / rect.height - 0.5) * 2;
+        renderer.setTargetTilt({ x, y });
+
+        // Custom cursor
+        cursor.style.left = e.clientX + 'px';
+        cursor.style.top  = e.clientY + 'px';
+
+        if (!inside) {
+          inside = true;
+          cursor.classList.remove('outside');
+          hint.classList.add('hidden');
+        }
+      });
+
+      wrap.addEventListener('mouseleave', () => {
+        inside = false;
+        cursor.classList.add('outside');
+        // Ease back to center
+        const DURATION = 600;
+        const start = { x: renderer._cur.x, y: renderer._cur.y };
+        let t0 = null;
+        function ease(ts) {
+          if (!t0) t0 = ts;
+          const p = Math.min((ts - t0) / DURATION, 1);
+          const e = 1 - Math.pow(1 - p, 3);
+          renderer.setTargetTilt({ x: start.x * (1 - e), y: start.y * (1 - e) });
+          if (p < 1) requestAnimationFrame(ease);
+          else renderer.setTargetTilt({ x: 0, y: 0 });
+        }
+        requestAnimationFrame(ease);
+      });
+
+      // Track cursor outside card too
+      document.addEventListener('mousemove', (e) => {
+        cursor.style.left = e.clientX + 'px';
+        cursor.style.top  = e.clientY + 'px';
+      });
+
+      // ── Resize ────────────────────────────────────────────────────────────
+      window.addEventListener('resize', () => {
+        const maxW2 = Math.min(window.innerWidth  * 0.82, 680);
+        const maxH2 = Math.min(window.innerHeight * 0.82, 520);
+        let w = maxW2, h = maxW2 / imgAspect;
+        if (h > maxH2) { h = maxH2; w = maxH2 * imgAspect; }
+        wrap.style.width  = w + 'px';
+        wrap.style.height = h + 'px';
+        canvas.width  = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+        renderer.resize();
+      });
+
+      // ── Sliders ───────────────────────────────────────────────────────────
+      function bind(sliderId, valId, decimals, fn) {
+        const sl = document.getElementById(sliderId);
+        const vl = document.getElementById(valId);
+        sl.addEventListener('input', () => {
+          const v = parseFloat(sl.value);
+          vl.textContent = v.toFixed(decimals);
+          fn(v);
+          renderer._last = { x: Infinity, y: Infinity };
+        });
+      }
+
+      bind('sl-displacement', 'val-displacement', 0,   v => renderer._dispScale = v);
+      bind('sl-smoothing',    'val-smoothing',    2,   v => renderer._smooth    = v);
+      bind('sl-overscan',     'val-overscan',     3,   v => renderer._overscan  = v);
+      bind('sl-fgscale',      'val-fgscale',      3,   v => renderer._fgScale   = v);
+
+      // ── Panel toggle ──────────────────────────────────────────────────────
+      const panel  = document.getElementById('controls');
+      const toggle = document.getElementById('controls-toggle');
+      document.getElementById('controls-close').addEventListener('click', () => {
+        panel.style.display  = 'none';
+        toggle.style.display = 'flex';
+      });
+      toggle.addEventListener('click', () => {
+        panel.style.display  = 'block';
+        toggle.style.display = 'none';
+      });
+    }
+
+    main();
+  </script>
+</body>
+</html>

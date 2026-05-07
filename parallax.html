@@ -519,7 +519,7 @@ void main() {
       try {
         [srcImg, depthImg] = await Promise.all([
           loadImage('input.jpeg'),
-          loadImage('midas.png'),
+          loadImage('depth.png'),
         ]);
       } catch (e) {
         console.error(e);

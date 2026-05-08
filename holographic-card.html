@@ -504,7 +504,7 @@
         // ±20° of physical wrist tilt maps to the full [-1, 1] range.
         // This matches natural card-holding movement — you don't tilt 45°.
         const RANGE = 20;
-        const x = clamp((e.gamma ?? 0) - this._baseGamma, -RANGE, RANGE) / RANGE;
+        const x = -clamp((e.gamma ?? 0) - this._baseGamma, -RANGE, RANGE) / RANGE;
         const y = clamp((e.beta  ?? 0) - this._baseBeta,  -RANGE, RANGE) / RANGE;
 
         this._onTilt({ x, y });
@@ -595,7 +595,7 @@
         // Guard against zero-dimension rects (e.g., hidden element).
         if (rect.width === 0 || rect.height === 0) return;
 
-        const x = ((e.clientX - rect.left) / rect.width  - 0.5) * 2;
+        const x = -((e.clientX - rect.left) / rect.width  - 0.5) * 2;
         const y = ((e.clientY - rect.top)  / rect.height - 0.5) * 2;
 
         this._currentTilt = { x, y };
@@ -638,7 +638,7 @@
         // Guard against zero-dimension rects.
         if (rect.width === 0 || rect.height === 0) return;
 
-        const x = ((touch.clientX - rect.left) / rect.width  - 0.5) * 2;
+        const x = -((touch.clientX - rect.left) / rect.width  - 0.5) * 2;
         const y = ((touch.clientY - rect.top)  / rect.height - 0.5) * 2;
 
         this._currentTilt = { x, y };

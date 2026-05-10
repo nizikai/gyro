@@ -296,6 +296,7 @@ void main() {
         // Active displacement is what is actually pushed to the shader each frame.
         this._activeDisplacementScale = this._displacementScale;
         this._displacementAnimRafId   = null;
+        this._tiltAnimRafId           = null;
 
         this._currentTilt      = { x: 0, y: 0 };
         this._targetTilt       = { x: 0, y: 0 };
@@ -548,6 +549,65 @@ void main() {
         this._targetTilt = { x: tilt.x, y: tilt.y };
       }
 
+      /** Cancels any in-progress tilt animation. */
+      cancelTiltAnimation() {
+        if (this._tiltAnimRafId !== null) {
+          cancelAnimationFrame(this._tiltAnimRafId);
+          this._tiltAnimRafId = null;
+        }
+      }
+
+      /**
+       * Animates tilt to a target vector over a fixed duration.
+       * @param {{ x: number, y: number }} targetTilt
+       * @param {number} duration
+       */
+      animateTiltTo(targetTilt, duration) {
+        this.cancelTiltAnimation();
+
+        const targetX = Number.isFinite(targetTilt && targetTilt.x) ? targetTilt.x : 0;
+        const targetY = Number.isFinite(targetTilt && targetTilt.y) ? targetTilt.y : 0;
+        const safeDuration = Math.max(0, duration || 0);
+
+        if (safeDuration === 0) {
+          this._currentTilt = { x: targetX, y: targetY };
+          this._targetTilt  = { x: targetX, y: targetY };
+          this._needsRedraw = true;
+          return;
+        }
+
+        const startTilt = { x: this._currentTilt.x, y: this._currentTilt.y };
+        let startTime = null;
+
+        const step = (timestamp) => {
+          if (startTime === null) startTime = timestamp;
+
+          const elapsed = Math.min(timestamp - startTime, safeDuration);
+          const t = elapsed / safeDuration;
+          // Cubic ease-out: 1 - (1-t)^3
+          const eased = 1 - Math.pow(1 - t, 3);
+
+          const x = startTilt.x + (targetX - startTilt.x) * eased;
+          const y = startTilt.y + (targetY - startTilt.y) * eased;
+
+          // Keep current/target aligned so smoothing does not fight this animation.
+          this._currentTilt = { x, y };
+          this._targetTilt  = { x, y };
+          this._needsRedraw = true;
+
+          if (elapsed >= safeDuration) {
+            this._currentTilt = { x: targetX, y: targetY };
+            this._targetTilt  = { x: targetX, y: targetY };
+            this._tiltAnimRafId = null;
+            return;
+          }
+
+          this._tiltAnimRafId = requestAnimationFrame(step);
+        };
+
+        this._tiltAnimRafId = requestAnimationFrame(step);
+      }
+
       /**
        * Sets the base displacement scale used for active motion.
        * Applies immediately to the currently rendered displacement.
@@ -644,6 +704,10 @@ void main() {
         if (this._displacementAnimRafId !== null) {
           cancelAnimationFrame(this._displacementAnimRafId);
           this._displacementAnimRafId = null;
+        }
+        if (this._tiltAnimRafId !== null) {
+          cancelAnimationFrame(this._tiltAnimRafId);
+          this._tiltAnimRafId = null;
         }
       }
 
@@ -1135,7 +1199,7 @@ void main() {
         this._IDLE_THRESHOLD  = 0.01; // min tilt change to count as "movement"
         this._WAKE_THRESHOLD  = 0.03; // tilt magnitude needed to exit idle-return lock
         this._RETURN_SCALE    = 1;    // near-flat displacement during idle return
-        this._RETURN_DURATION = 900;  // ms
+        this._RETURN_DURATION = 1000; // ms
         this._idleTimer       = null;
         this._lastTilt        = { x: 0, y: 0 };
         this._isIdleReturning = false;
@@ -1416,9 +1480,11 @@ void main() {
 
           this._isIdleReturning = false;
           this._lastTilt = { x: 0, y: 0 };
+          this._renderer.cancelTiltAnimation();
           this._renderer.animateDisplacementScale(this._displacementScale, 260);
         }
 
+        this._renderer.cancelTiltAnimation();
         this._renderer.setTargetTilt(tilt);
         this._resetIdleTimer(tilt);
       }
@@ -1460,7 +1526,7 @@ void main() {
           if (this._renderer && !this._motionFrozen) {
             this._isIdleReturning = true;
             this._lastTilt = { x: 0, y: 0 };
-            this._renderer.setTargetTilt({ x: 0, y: 0 });
+            this._renderer.animateTiltTo({ x: 0, y: 0 }, this._RETURN_DURATION);
             this._renderer.animateDisplacementScale(this._RETURN_SCALE, this._RETURN_DURATION);
           }
         }, this._IDLE_DELAY);
@@ -1486,6 +1552,7 @@ void main() {
           this._activeController.stop();
         }
         if (this._renderer) {
+          this._renderer.cancelTiltAnimation();
           this._renderer.setTargetTilt({ x: 0, y: 0 });
         }
       }

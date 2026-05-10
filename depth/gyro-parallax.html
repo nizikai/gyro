@@ -298,6 +298,7 @@ void main() {
         // Initialize to a sentinel so the first frame always draws
         this._lastRenderedTilt = { x: Infinity, y: Infinity };
         this._rafId            = null;
+        this._returnRafId      = null;
         this._paused           = false;
 
         // WebGL state (populated by init())
@@ -466,7 +467,7 @@ void main() {
         cur.y += (tgt.y - cur.y) * α;
 
         const last = this._lastRenderedTilt;
-        const TOL  = 1e-6;
+        const TOL  = 0.0001;
 
         // Dirty check: skip draw if tilt hasn't meaningfully changed
         if (
@@ -524,7 +525,63 @@ void main() {
        * @param {{ x: number, y: number }} tilt
        */
       setTargetTilt(tilt) {
+        // Cancel any in-progress return animation
+        if (this._returnRafId !== null) {
+          cancelAnimationFrame(this._returnRafId);
+          this._returnRafId = null;
+        }
         this._targetTilt = tilt;
+      }
+
+      /**
+       * Animates _currentTilt and _targetTilt back to {0,0} over `duration` ms
+       * using a cubic ease-out curve. Runs its own rAF loop independently of _tick.
+       * @param {number} [duration=2000]
+       */
+      returnToCenter(duration) {
+        duration = duration || 2000;
+
+        // Cancel any existing return animation
+        if (this._returnRafId !== null) {
+          cancelAnimationFrame(this._returnRafId);
+          this._returnRafId = null;
+        }
+
+        const startX = this._currentTilt.x;
+        const startY = this._currentTilt.y;
+        let startTime = null;
+
+        const step = (timestamp) => {
+          if (startTime === null) startTime = timestamp;
+          const elapsed = Math.min(timestamp - startTime, duration);
+          const t = elapsed / duration;
+          // Cubic ease-out: 1 - (1-t)^3
+          const eased = 1 - Math.pow(1 - t, 3);
+
+          const x = startX * (1 - eased);
+          const y = startY * (1 - eased);
+
+          // Write directly into currentTilt and sync targetTilt
+          this._currentTilt.x = x;
+          this._currentTilt.y = y;
+          this._targetTilt.x  = x;
+          this._targetTilt.y  = y;
+          // Force the dirty check to pass
+          this._lastRenderedTilt.x = x + 1;
+
+          if (elapsed >= duration) {
+            this._currentTilt.x = 0;
+            this._currentTilt.y = 0;
+            this._targetTilt.x  = 0;
+            this._targetTilt.y  = 0;
+            this._returnRafId = null;
+            return;
+          }
+
+          this._returnRafId = requestAnimationFrame(step);
+        };
+
+        this._returnRafId = requestAnimationFrame(step);
       }
 
       /** Resizes the WebGL viewport to match the canvas's current pixel dimensions. */
@@ -540,6 +597,10 @@ void main() {
         if (this._rafId !== null) {
           cancelAnimationFrame(this._rafId);
           this._rafId = null;
+        }
+        if (this._returnRafId !== null) {
+          cancelAnimationFrame(this._returnRafId);
+          this._returnRafId = null;
         }
       }
 
@@ -614,6 +675,10 @@ void main() {
       /** Cancels the rAF loop and releases WebGL resources. */
       destroy() {
         this.pause();
+        if (this._returnRafId !== null) {
+          cancelAnimationFrame(this._returnRafId);
+          this._returnRafId = null;
+        }
         const gl = this._gl;
         if (!gl) return;
         if (this._program)       gl.deleteProgram(this._program);
@@ -1026,11 +1091,9 @@ void main() {
         this._renderer         = null;
         this._motionFrozen     = false;
 
-        // Idle return: after IDLE_DELAY ms of no *significant* tilt change, return to {0,0}
-        this._IDLE_DELAY         = 1000; // ms before starting the return
-        this._IDLE_THRESHOLD     = 0.2;  // min tilt delta to count as "active" input
-        this._idleTimer          = null;
-        this._lastSignificantTilt = { x: 0, y: 0 };
+        // Idle return: after IDLE_DELAY ms, smoothly return to {0,0} over 2s
+        this._IDLE_DELAY  = 1000; // ms before starting the return
+        this._idleTimer   = null;
 
         // Reduced-motion media query state
         this._reducedMotionMQL      = null;
@@ -1265,10 +1328,10 @@ void main() {
         const controller = new OrientationController((tilt) => {
           console.log('[ParallaxEffect] Gyro tilt:', tilt.x.toFixed(3), tilt.y.toFixed(3));
           if (!this._motionFrozen) {
-            // Restore live smoothing factor when user is actively tilting
+            // Cancel any in-progress return animation when user tilts again
             if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer(tilt);
+            this._resetIdleTimer();
           }
         });
 
@@ -1282,10 +1345,10 @@ void main() {
       _startMouseController() {
         const controller = new MouseController(this._canvas, (tilt) => {
           if (!this._motionFrozen) {
-            // Restore live smoothing factor when user is actively moving
+            // Cancel any in-progress return animation when user moves again
             if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer(tilt);
+            this._resetIdleTimer();
           }
         });
 
@@ -1298,36 +1361,20 @@ void main() {
       // -----------------------------------------------------------------------
 
       /**
-       * (Re)starts the idle timer only if the tilt change is significant.
-       * Ignores tiny gyro noise so the timer can actually expire when the device is still.
-       * When the timer fires, the renderer's target tilt is set to {0,0} with slow smoothing.
+       * (Re)starts the idle timer on every tilt event.
+       * When the timer fires, calls renderer.returnToCenter() which drives
+       * its own rAF ease-out animation directly — no lerp fighting.
        */
-      _resetIdleTimer(tilt) {
-        // Only reset the timer if the tilt change is above the threshold
-        const dx = Math.abs(tilt.x - this._lastSignificantTilt.x);
-        const dy = Math.abs(tilt.y - this._lastSignificantTilt.y);
-        
-        if (dx > this._IDLE_THRESHOLD || dy > this._IDLE_THRESHOLD) {
-          // Significant movement detected — reset timer and update last tilt
-          this._lastSignificantTilt = { x: tilt.x, y: tilt.y };
-          
-          if (this._idleTimer !== null) {
-            clearTimeout(this._idleTimer);
-          }
-          
-          this._idleTimer = setTimeout(() => {
-            this._idleTimer = null;
-            if (this._renderer && !this._motionFrozen) {
-              // Slow down smoothing for the ~2s ease-back animation
-              this._renderer._smoothingFactor = 0.015;
-              this._renderer.setTargetTilt({ x: 0, y: 0 });
-              // Bust the dirty-check sentinel so the lerp actually renders frames
-              this._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
-              // Reset last significant tilt so next movement will trigger properly
-              this._lastSignificantTilt = { x: 0, y: 0 };
-            }
-          }, this._IDLE_DELAY);
+      _resetIdleTimer() {
+        if (this._idleTimer !== null) {
+          clearTimeout(this._idleTimer);
         }
+        this._idleTimer = setTimeout(() => {
+          this._idleTimer = null;
+          if (this._renderer && !this._motionFrozen) {
+            this._renderer.returnToCenter(2000);
+          }
+        }, this._IDLE_DELAY);
       }
 
       // -----------------------------------------------------------------------

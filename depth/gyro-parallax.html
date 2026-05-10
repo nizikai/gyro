@@ -1026,6 +1026,10 @@ void main() {
         this._renderer         = null;
         this._motionFrozen     = false;
 
+        // Idle return: after IDLE_DELAY ms of no tilt input, snap target back to {0,0}
+        this._IDLE_DELAY   = 2000; // ms
+        this._idleTimer    = null;
+
         // Reduced-motion media query state
         this._reducedMotionMQL      = null;
         this._reducedMotionListener = null;
@@ -1260,6 +1264,7 @@ void main() {
           console.log('[ParallaxEffect] Gyro tilt:', tilt.x.toFixed(3), tilt.y.toFixed(3));
           if (!this._motionFrozen) {
             this._renderer.setTargetTilt(tilt);
+            this._resetIdleTimer();
           }
         });
 
@@ -1274,11 +1279,33 @@ void main() {
         const controller = new MouseController(this._canvas, (tilt) => {
           if (!this._motionFrozen) {
             this._renderer.setTargetTilt(tilt);
+            this._resetIdleTimer();
           }
         });
 
         this._activeController = controller;
         controller.start();
+      }
+
+      // -----------------------------------------------------------------------
+      // Idle return — reset tilt to {0,0} after IDLE_DELAY ms of no input
+      // -----------------------------------------------------------------------
+
+      /**
+       * (Re)starts the idle timer. Call this on every tilt input event.
+       * When the timer fires, the renderer's target tilt is set to {0,0} and
+       * the existing smoothing in the render loop takes care of the gradual return.
+       */
+      _resetIdleTimer() {
+        if (this._idleTimer !== null) {
+          clearTimeout(this._idleTimer);
+        }
+        this._idleTimer = setTimeout(() => {
+          this._idleTimer = null;
+          if (this._renderer && !this._motionFrozen) {
+            this._renderer.setTargetTilt({ x: 0, y: 0 });
+          }
+        }, this._IDLE_DELAY);
       }
 
       // -----------------------------------------------------------------------
@@ -1316,6 +1343,12 @@ void main() {
        * Tears down all sub-components and cancels all listeners.
        */
       destroy() {
+        // Clear idle timer
+        if (this._idleTimer !== null) {
+          clearTimeout(this._idleTimer);
+          this._idleTimer = null;
+        }
+
         // Remove resize listener
         if (this._resizeListener) {
           window.removeEventListener('resize', this._resizeListener);

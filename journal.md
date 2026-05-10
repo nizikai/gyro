@@ -1,23 +1,22 @@
 # Journal
 
 ## Latest Milestone
-- Implemented deterministic idle-return timing: 1s inactivity detection + 1s smooth return animation.
+- Simplified to core behavior only: image load + gyro parallax.
+- Removed idle-return system, mouse fallback logic, reduced-motion flow, and in-file property-test harness.
 
 ## Current Behavior
-- Renderer supports explicit tilt animations via animateTiltTo(), separate from smoothing lerp.
-- After 1000 ms of no significant gyro movement, effect animates tilt to center over 1000 ms.
-- Idle-return can be interrupted by meaningful new tilt (wake threshold), and input cancels return animation cleanly.
-- Displacement still eases during idle return and restores when movement resumes.
+- App loads source image + depth map, initializes WebGL renderer, and drives tilt from deviceorientation.
+- iOS permission prompt remains via PermissionManager.
+- UI keeps live sliders (displacement, smoothing, overscan, foreground scale) and debug log overlay.
 
 ## Key Tunables
-- IDLE_DELAY: 1000 ms
-- IDLE_THRESHOLD: 0.01
-- WAKE_THRESHOLD: 0.03
-- RETURN_DURATION: 1000 ms
-- RETURN_SCALE: 1
+- displacementScale (slider)
+- smoothingFactor (slider)
+- overscan (slider)
+- fgScale (slider)
 
 ## Verification
 - VS Code diagnostics: no errors in depth/gyro-parallax.html.
 
 ## Open Notes
-- Validate on physical devices and tune IDLE_THRESHOLD/WAKE_THRESHOLD per sensor noise profile.
+- If desktop support is needed again, reintroduce a mouse controller as optional fallback.

@@ -197,7 +197,8 @@ void main() {
 
     const FRAGMENT_SHADER_SOURCE = `
 precision mediump float;
-uniform sampler2D uSourceImage;
+uniform sampler2D uBackgroundImage;
+uniform sampler2D uForegroundImage;
 uniform sampler2D uDepthMap;
 uniform vec2 uTilt;
 uniform float uDisplacementScale;
@@ -207,72 +208,7 @@ uniform float uOverscan;
 uniform float uFgScale;
 uniform float uFgThreshold;
 uniform float uFgFeather;
-uniform float uFillRadius;
 varying vec2 vUV;
-
-float foregroundMask(float depthValue) {
-  return smoothstep(uFgThreshold - uFgFeather, uFgThreshold + uFgFeather, depthValue);
-}
-
-float backgroundWeight(float depthValue) {
-  return 1.0 - foregroundMask(depthValue);
-}
-
-void accumulateBackgroundSample(vec2 sampleUV, inout vec3 colorSum, inout float weightSum) {
-  vec2 uv = clamp(sampleUV, 0.0, 1.0);
-  float depth = texture2D(uDepthMap, uv).r;
-  float w = backgroundWeight(depth);
-  colorSum += texture2D(uSourceImage, uv).rgb * w;
-  weightSum += w;
-}
-
-vec4 sampleBackgroundColor(vec2 uv, vec2 uvPerPixel, vec2 tilt) {
-  vec3 colorSum = vec3(0.0);
-  float weightSum = 0.0;
-
-  accumulateBackgroundSample(uv, colorSum, weightSum);
-
-  float radius = uFillRadius;
-  if (radius > 0.01) {
-    vec2 ring1 = uvPerPixel * radius;
-    vec2 ring2 = ring1 * 2.0;
-    vec2 bias = vec2(0.0);
-    float tiltLen = length(tilt);
-    if (tiltLen > 0.001) {
-      bias = normalize(tilt) * radius * 0.35 * uvPerPixel;
-    }
-
-    const float DIAG = 0.70710678;
-    vec2 d1 = vec2(ring1.x * DIAG, ring1.y * DIAG);
-    vec2 d2 = vec2(ring2.x * DIAG, ring2.y * DIAG);
-    vec2 baseUV = uv - bias;
-
-    accumulateBackgroundSample(baseUV + vec2( ring1.x, 0.0), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(-ring1.x, 0.0), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(0.0,  ring1.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(0.0, -ring1.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2( d1.x,  d1.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(-d1.x,  d1.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2( d1.x, -d1.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(-d1.x, -d1.y), colorSum, weightSum);
-
-    accumulateBackgroundSample(baseUV + vec2( ring2.x, 0.0), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(-ring2.x, 0.0), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(0.0,  ring2.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(0.0, -ring2.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2( d2.x,  d2.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(-d2.x,  d2.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2( d2.x, -d2.y), colorSum, weightSum);
-    accumulateBackgroundSample(baseUV + vec2(-d2.x, -d2.y), colorSum, weightSum);
-  }
-
-  if (weightSum < 0.0001) {
-    vec2 fallbackUV = clamp(uv, 0.0, 1.0);
-    return texture2D(uSourceImage, fallbackUV);
-  }
-
-  return vec4(colorSum / weightSum, 1.0);
-}
 
 void main() {
   vec2 scale  = uUVTransform.xy;
@@ -286,21 +222,21 @@ void main() {
 
   vec2 imageUV = (vUV - offset) / scale;
   imageUV = imageUV * (1.0 - 2.0 * uOverscan) + uOverscan;
-  vec2 uvPerPixel = 1.0 / (uResolution * scale);
 
   float depth = texture2D(uDepthMap, imageUV).r;
-  vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
 
-  vec2 bgUV = clamp(imageUV + parallaxOffset, 0.0, 1.0);
-  vec4 bgColor = sampleBackgroundColor(bgUV, uvPerPixel, uTilt);
+  float bgDepthClamp = clamp(uFgThreshold - 0.5 * uFgFeather, 0.0, 1.0);
+  float bgDepth = min(depth, bgDepthClamp);
+  vec2 bgParallaxOffset = uTilt * (1.0 - bgDepth) * uDisplacementScale / (uResolution * scale);
+  vec2 bgUV = clamp(imageUV + bgParallaxOffset, 0.0, 1.0);
+  vec4 bgColor = texture2D(uBackgroundImage, bgUV);
 
-  vec2 fgOffset = (imageUV - 0.5) * depth * uFgScale;
-  vec2 fgUV = clamp(imageUV + parallaxOffset - fgOffset, 0.0, 1.0);
-  vec4 fgColor = texture2D(uSourceImage, fgUV);
-  float fgDepth = texture2D(uDepthMap, fgUV).r;
-  float fgMask = foregroundMask(fgDepth);
+  vec2 fgParallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
+  vec2 fgCenterOffset = (imageUV - 0.5) * depth * uFgScale;
+  vec2 fgUV = clamp(imageUV + fgParallaxOffset - fgCenterOffset, 0.0, 1.0);
+  vec4 fgColor = texture2D(uForegroundImage, fgUV);
 
-  vec3 color = mix(bgColor.rgb, fgColor.rgb, fgMask);
+  vec3 color = mix(bgColor.rgb, fgColor.rgb, fgColor.a);
   gl_FragColor = vec4(color, 1.0);
 }
 `;
@@ -318,10 +254,234 @@ void main() {
       return { scaleX: scaleX, scaleY: 1.0, offsetX: (1.0 - scaleX) / 2.0, offsetY: 0.0 };
     }
 
+    function clamp01(value) {
+      return Math.max(0, Math.min(1, value));
+    }
+
+    function smoothstep(edge0, edge1, x) {
+      const width = edge1 - edge0;
+      if (Math.abs(width) < 1e-6) {
+        return x < edge0 ? 0 : 1;
+      }
+      const t = clamp01((x - edge0) / width);
+      return t * t * (3 - 2 * t);
+    }
+
+    function dilateMask(mask, width, height, radius) {
+      const out = new Float32Array(mask.length);
+      if (radius <= 0) {
+        out.set(mask);
+        return out;
+      }
+
+      for (let y = 0; y < height; y += 1) {
+        const y0 = Math.max(0, y - radius);
+        const y1 = Math.min(height - 1, y + radius);
+        for (let x = 0; x < width; x += 1) {
+          const x0 = Math.max(0, x - radius);
+          const x1 = Math.min(width - 1, x + radius);
+          let maxValue = 0;
+          for (let yy = y0; yy <= y1; yy += 1) {
+            for (let xx = x0; xx <= x1; xx += 1) {
+              const v = mask[yy * width + xx];
+              if (v > maxValue) maxValue = v;
+            }
+          }
+          out[y * width + x] = maxValue;
+        }
+      }
+
+      return out;
+    }
+
+    function buildSeparatedLayers(sourceImage, depthMap, options) {
+      const width = sourceImage.naturalWidth || sourceImage.width;
+      const height = sourceImage.naturalHeight || sourceImage.height;
+      if (!width || !height) {
+        throw new Error('Invalid source image dimensions');
+      }
+
+      const srcCanvas = document.createElement('canvas');
+      srcCanvas.width = width;
+      srcCanvas.height = height;
+      const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+      if (!srcCtx) throw new Error('2D context unavailable for source');
+      srcCtx.drawImage(sourceImage, 0, 0, width, height);
+      const srcData = srcCtx.getImageData(0, 0, width, height);
+      const srcPixels = srcData.data;
+
+      const depthCanvas = document.createElement('canvas');
+      depthCanvas.width = width;
+      depthCanvas.height = height;
+      const depthCtx = depthCanvas.getContext('2d', { willReadFrequently: true });
+      if (!depthCtx) throw new Error('2D context unavailable for depth');
+      depthCtx.drawImage(depthMap, 0, 0, width, height);
+      const depthPixels = depthCtx.getImageData(0, 0, width, height).data;
+
+      const threshold = clamp01((options && options.fgThreshold != null) ? options.fgThreshold : 0.62);
+      const feather = Math.max(0.001, (options && options.fgFeather != null) ? options.fgFeather : 0.08);
+      const fillRadius = Math.max(0, (options && options.fillRadius != null) ? options.fillRadius : 3.0);
+      const growRadius = Math.max(0, Math.round(fillRadius * 0.75));
+
+      const pixelCount = width * height;
+      const rawMask = new Float32Array(pixelCount);
+      const low = threshold - feather;
+      const high = threshold + feather;
+
+      for (let i = 0; i < pixelCount; i += 1) {
+        const depthValue = depthPixels[i * 4] / 255;
+        rawMask[i] = smoothstep(low, high, depthValue);
+      }
+
+      const grownMask = dilateMask(rawMask, width, height, growRadius);
+
+      const fgCanvas = document.createElement('canvas');
+      fgCanvas.width = width;
+      fgCanvas.height = height;
+      const fgCtx = fgCanvas.getContext('2d');
+      if (!fgCtx) throw new Error('2D context unavailable for foreground');
+      const fgImageData = fgCtx.createImageData(width, height);
+      const fgPixels = fgImageData.data;
+
+      let workingR = new Float32Array(pixelCount);
+      let workingG = new Float32Array(pixelCount);
+      let workingB = new Float32Array(pixelCount);
+      let confidence = new Float32Array(pixelCount);
+
+      for (let i = 0; i < pixelCount; i += 1) {
+        const si = i * 4;
+        const mask = clamp01(grownMask[i]);
+        const alpha = Math.round(clamp01(rawMask[i]) * 255);
+
+        fgPixels[si] = srcPixels[si];
+        fgPixels[si + 1] = srcPixels[si + 1];
+        fgPixels[si + 2] = srcPixels[si + 2];
+        fgPixels[si + 3] = alpha;
+
+        workingR[i] = srcPixels[si];
+        workingG[i] = srcPixels[si + 1];
+        workingB[i] = srcPixels[si + 2];
+        confidence[i] = 1 - mask;
+      }
+
+      const passes = Math.max(24, Math.round(36 + fillRadius * 10));
+      let nextR = new Float32Array(pixelCount);
+      let nextG = new Float32Array(pixelCount);
+      let nextB = new Float32Array(pixelCount);
+      let nextConfidence = new Float32Array(pixelCount);
+
+      for (let pass = 0; pass < passes; pass += 1) {
+        let progressed = false;
+
+        for (let y = 0; y < height; y += 1) {
+          const y0 = Math.max(0, y - 1);
+          const y1 = Math.min(height - 1, y + 1);
+          for (let x = 0; x < width; x += 1) {
+            const x0 = Math.max(0, x - 1);
+            const x1 = Math.min(width - 1, x + 1);
+            const i = y * width + x;
+            const conf = confidence[i];
+
+            if (conf > 0.995) {
+              nextR[i] = workingR[i];
+              nextG[i] = workingG[i];
+              nextB[i] = workingB[i];
+              nextConfidence[i] = 1;
+              continue;
+            }
+
+            let sumR = 0;
+            let sumG = 0;
+            let sumB = 0;
+            let sumW = 0;
+
+            for (let yy = y0; yy <= y1; yy += 1) {
+              for (let xx = x0; xx <= x1; xx += 1) {
+                if (xx === x && yy === y) continue;
+                const ni = yy * width + xx;
+                const w = confidence[ni];
+                if (w <= 0.001) continue;
+                sumR += workingR[ni] * w;
+                sumG += workingG[ni] * w;
+                sumB += workingB[ni] * w;
+                sumW += w;
+              }
+            }
+
+            if (sumW > 0.001) {
+              const avgR = sumR / sumW;
+              const avgG = sumG / sumW;
+              const avgB = sumB / sumW;
+              const blend = 1 - conf;
+              nextR[i] = workingR[i] * (1 - blend) + avgR * blend;
+              nextG[i] = workingG[i] * (1 - blend) + avgG * blend;
+              nextB[i] = workingB[i] * (1 - blend) + avgB * blend;
+
+              const gain = 0.22 + 0.25 * clamp01(sumW / 6);
+              nextConfidence[i] = Math.min(1, conf + gain * (1 - conf));
+              if (nextConfidence[i] > conf + 0.0005) progressed = true;
+            } else {
+              nextR[i] = workingR[i];
+              nextG[i] = workingG[i];
+              nextB[i] = workingB[i];
+              nextConfidence[i] = conf;
+            }
+          }
+        }
+
+        const tmpR = workingR;
+        const tmpG = workingG;
+        const tmpB = workingB;
+        const tmpC = confidence;
+        workingR = nextR;
+        workingG = nextG;
+        workingB = nextB;
+        confidence = nextConfidence;
+        nextR = tmpR;
+        nextG = tmpG;
+        nextB = tmpB;
+        nextConfidence = tmpC;
+
+        if (!progressed) break;
+      }
+
+      const bgCanvas = document.createElement('canvas');
+      bgCanvas.width = width;
+      bgCanvas.height = height;
+      const bgCtx = bgCanvas.getContext('2d');
+      if (!bgCtx) throw new Error('2D context unavailable for background');
+      const bgImageData = bgCtx.createImageData(width, height);
+      const bgPixels = bgImageData.data;
+
+      for (let i = 0; i < pixelCount; i += 1) {
+        const si = i * 4;
+        const removeAmount = clamp01(grownMask[i]);
+        const keepAmount = 1 - removeAmount;
+
+        const r = srcPixels[si] * keepAmount + workingR[i] * removeAmount;
+        const g = srcPixels[si + 1] * keepAmount + workingG[i] * removeAmount;
+        const b = srcPixels[si + 2] * keepAmount + workingB[i] * removeAmount;
+
+        bgPixels[si] = Math.round(r);
+        bgPixels[si + 1] = Math.round(g);
+        bgPixels[si + 2] = Math.round(b);
+        bgPixels[si + 3] = 255;
+      }
+
+      fgCtx.putImageData(fgImageData, 0, 0);
+      bgCtx.putImageData(bgImageData, 0, 0);
+
+      return {
+        foregroundImage: fgCanvas,
+        backgroundImage: bgCanvas,
+      };
+    }
+
     class Renderer {
-      constructor(canvas, sourceImage, depthMap, options) {
+      constructor(canvas, backgroundImage, foregroundImage, depthMap, options) {
         this._canvas = canvas;
-        this._sourceImage = sourceImage;
+        this._backgroundImage = backgroundImage;
+        this._foregroundImage = foregroundImage;
         this._depthMap = depthMap;
         this._displacementScale = (options && options.displacementScale != null)
           ? options.displacementScale : 30;
@@ -335,8 +495,6 @@ void main() {
           ? options.fgThreshold : 0.62;
         this._fgFeather = (options && options.fgFeather != null)
           ? options.fgFeather : 0.08;
-        this._fillRadius = (options && options.fillRadius != null)
-          ? options.fillRadius : 3.0;
 
         this._currentTilt = { x: 0, y: 0 };
         this._targetTilt = { x: 0, y: 0 };
@@ -348,7 +506,8 @@ void main() {
         this._gl = null;
         this._program = null;
         this._quadBuffer = null;
-        this._sourceTexture = null;
+        this._backgroundTexture = null;
+        this._foregroundTexture = null;
         this._depthTexture = null;
         this._uniforms = {};
 
@@ -397,11 +556,9 @@ void main() {
         gl.enableVertexAttribArray(aPosition);
         gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
-        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
-        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
-
         this._uniforms = {
-          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
+          uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
+          uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
@@ -411,11 +568,12 @@ void main() {
           uFgScale: gl.getUniformLocation(program, 'uFgScale'),
           uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
           uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
-          uFillRadius: gl.getUniformLocation(program, 'uFillRadius'),
         };
 
-        gl.uniform1i(this._uniforms.uSourceImage, 0);
-        gl.uniform1i(this._uniforms.uDepthMap, 1);
+        this._refreshTextures();
+        gl.uniform1i(this._uniforms.uBackgroundImage, 0);
+        gl.uniform1i(this._uniforms.uForegroundImage, 1);
+        gl.uniform1i(this._uniforms.uDepthMap, 2);
 
         this._rafId = requestAnimationFrame(this._tick);
         return true;
@@ -444,6 +602,19 @@ void main() {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
         return texture;
+      }
+
+      _refreshTextures() {
+        const gl = this._gl;
+        if (!gl) return;
+
+        if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
+        if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
+        if (this._depthTexture) gl.deleteTexture(this._depthTexture);
+
+        this._backgroundTexture = this._uploadTexture(gl, this._backgroundImage, 0);
+        this._foregroundTexture = this._uploadTexture(gl, this._foregroundImage, 1);
+        this._depthTexture = this._uploadTexture(gl, this._depthMap, 2);
       }
 
       _tick() {
@@ -481,8 +652,8 @@ void main() {
         gl.uniform2f(u.uResolution, canvas.width, canvas.height);
 
         const uv = computeUVTransform(
-          this._sourceImage.naturalWidth || this._sourceImage.width,
-          this._sourceImage.naturalHeight || this._sourceImage.height,
+          this._backgroundImage.naturalWidth || this._backgroundImage.width,
+          this._backgroundImage.naturalHeight || this._backgroundImage.height,
           canvas.width,
           canvas.height
         );
@@ -491,13 +662,22 @@ void main() {
         gl.uniform1f(u.uFgScale, this._fgScale);
         gl.uniform1f(u.uFgThreshold, this._fgThreshold);
         gl.uniform1f(u.uFgFeather, this._fgFeather);
-        gl.uniform1f(u.uFillRadius, this._fillRadius);
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
         last.x = cur.x;
         last.y = cur.y;
         this._rafId = requestAnimationFrame(this._tick);
+      }
+
+      setLayerTextures(backgroundImage, foregroundImage) {
+        if (!backgroundImage || !foregroundImage) return;
+        this._backgroundImage = backgroundImage;
+        this._foregroundImage = foregroundImage;
+
+        if (!this._gl) return;
+        this._refreshTextures();
+        this._needsRedraw = true;
       }
 
       setTargetTilt(tilt) {
@@ -536,12 +716,6 @@ void main() {
       setForegroundFeather(value) {
         if (!Number.isFinite(value) || value < 0) return;
         this._fgFeather = Math.max(0.001, value);
-        this._needsRedraw = true;
-      }
-
-      setFillRadius(value) {
-        if (!Number.isFinite(value) || value < 0) return;
-        this._fillRadius = value;
         this._needsRedraw = true;
       }
 
@@ -596,13 +770,9 @@ void main() {
         gl.enableVertexAttribArray(aPosition);
         gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
-        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
-        if (this._depthTexture) gl.deleteTexture(this._depthTexture);
-        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
-        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
-
         this._uniforms = {
-          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
+          uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
+          uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
@@ -612,11 +782,12 @@ void main() {
           uFgScale: gl.getUniformLocation(program, 'uFgScale'),
           uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
           uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
-          uFillRadius: gl.getUniformLocation(program, 'uFillRadius'),
         };
 
-        gl.uniform1i(this._uniforms.uSourceImage, 0);
-        gl.uniform1i(this._uniforms.uDepthMap, 1);
+        this._refreshTextures();
+        gl.uniform1i(this._uniforms.uBackgroundImage, 0);
+        gl.uniform1i(this._uniforms.uForegroundImage, 1);
+        gl.uniform1i(this._uniforms.uDepthMap, 2);
 
         this._needsRedraw = true;
         this._rafId = requestAnimationFrame(this._tick);
@@ -628,7 +799,8 @@ void main() {
         if (!gl) return;
         if (this._program) gl.deleteProgram(this._program);
         if (this._quadBuffer) gl.deleteBuffer(this._quadBuffer);
-        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
+        if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
+        if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
         if (this._depthTexture) gl.deleteTexture(this._depthTexture);
         this._gl = null;
       }
@@ -787,12 +959,18 @@ void main() {
         this._fillRadius = (options.fillRadius != null)
           ? options.fillRadius : 3.0;
 
+        this._sourceImage = null;
+        this._depthMap = null;
+        this._backgroundLayerImage = null;
+        this._foregroundLayerImage = null;
+
         this._activeController = null;
         this._renderer = null;
 
         this._resizeListener = null;
         this._onContextLost = null;
         this._onContextRestored = null;
+        this._rebuildTimerId = null;
         this._listeners = [];
       }
 
@@ -826,7 +1004,47 @@ void main() {
 
         this._sourceImage = sourceImage;
         this._depthMap = depthMap;
+        this._rebuildLayers();
         this._setup();
+      }
+
+      _rebuildLayers() {
+        if (!this._sourceImage || !this._depthMap) return;
+
+        try {
+          const layers = buildSeparatedLayers(this._sourceImage, this._depthMap, {
+            fgThreshold: this._fgThreshold,
+            fgFeather: this._fgFeather,
+            fillRadius: this._fillRadius,
+          });
+
+          this._backgroundLayerImage = layers.backgroundImage;
+          this._foregroundLayerImage = layers.foregroundImage;
+
+          if (this._renderer) {
+            this._renderer.setForegroundThreshold(this._fgThreshold);
+            this._renderer.setForegroundFeather(this._fgFeather);
+            this._renderer.setLayerTextures(this._backgroundLayerImage, this._foregroundLayerImage);
+          }
+
+          console.log('[ParallaxEffect] Layer textures rebuilt');
+        } catch (err) {
+          console.error('[ParallaxEffect] Failed to rebuild layers:', err);
+          this.dispatchEvent(new CustomEvent('error', {
+            detail: { message: 'Failed to build clean foreground/background layers' },
+          }));
+        }
+      }
+
+      scheduleLayerRebuild() {
+        if (this._rebuildTimerId !== null) {
+          clearTimeout(this._rebuildTimerId);
+        }
+
+        this._rebuildTimerId = setTimeout(() => {
+          this._rebuildTimerId = null;
+          this._rebuildLayers();
+        }, 80);
       }
 
       _loadImage(url, label) {
@@ -852,15 +1070,20 @@ void main() {
           this._canvas.height = initH;
         }
 
-        this._renderer = new Renderer(this._canvas, this._sourceImage, this._depthMap, {
+        this._renderer = new Renderer(
+          this._canvas,
+          this._backgroundLayerImage || this._sourceImage,
+          this._foregroundLayerImage || this._sourceImage,
+          this._depthMap,
+          {
           displacementScale: this._displacementScale,
           smoothingFactor: this._smoothingFactor,
           overscan: this._overscan,
           fgScale: this._fgScale,
           fgThreshold: this._fgThreshold,
           fgFeather: this._fgFeather,
-          fillRadius: this._fillRadius,
-        });
+          }
+        );
 
         const webglOk = this._renderer.init();
         if (!webglOk) {
@@ -956,6 +1179,11 @@ void main() {
         if (this._renderer) {
           this._renderer.destroy();
           this._renderer = null;
+        }
+
+        if (this._rebuildTimerId !== null) {
+          clearTimeout(this._rebuildTimerId);
+          this._rebuildTimerId = null;
         }
       }
     }
@@ -1073,16 +1301,18 @@ void main() {
       bindSlider('sl-fgthresh', 'val-fgthresh', 2, (value) => {
         effect._fgThreshold = value;
         if (effect._renderer) effect._renderer.setForegroundThreshold(value);
+        effect.scheduleLayerRebuild();
       });
 
       bindSlider('sl-fgfeather', 'val-fgfeather', 3, (value) => {
         effect._fgFeather = value;
         if (effect._renderer) effect._renderer.setForegroundFeather(value);
+        effect.scheduleLayerRebuild();
       });
 
       bindSlider('sl-fillradius', 'val-fillradius', 1, (value) => {
         effect._fillRadius = value;
-        if (effect._renderer) effect._renderer.setFillRadius(value);
+        effect.scheduleLayerRebuild();
       });
 
       const panel = document.getElementById('controls');

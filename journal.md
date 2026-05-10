@@ -1,15 +1,16 @@
 # Journal
 
 ## Latest Milestone
-- Implemented layered depth compositing in `depth/gyro-parallax copy.html` to reduce double-foreground ghosting from single-image warp.
-- Added depth-mask controls and runtime hole-fill sampling to approximate background recovery behind near objects.
+- Implemented option-3 style split-layer pipeline in `depth/gyro-parallax copy.html`.
+- App now preprocesses `input.jpeg` + `depth.png` into two runtime textures: clean background plate and RGBA foreground cutout.
 
 ## Current Behavior
 - App loads source image + depth map, initializes WebGL renderer, and drives tilt from deviceorientation.
-- Fragment shader now separates foreground/background contribution using depth threshold + feather and composites them after a background-only weighted sample pass.
-- Background pass uses local ring sampling (`fillRadius`) to replace near-depth pixels with nearby far-depth pixels when possible.
+- Preprocess step builds layers using depth threshold/feather mask + iterative inpaint fill for occluded background regions.
+- Fragment shader composites `uBackgroundImage` + `uForegroundImage` textures directly, so near object is no longer sampled from the same base image twice.
+- Threshold, feather, and fill-radius slider changes trigger debounced layer rebuild and texture refresh in-place.
 - iOS permission prompt remains via PermissionManager.
-- UI keeps live sliders and now includes: foreground threshold, foreground feather, background fill radius.
+- UI sliders: displacement, smoothing, overscan, foreground scale, foreground threshold, foreground feather, background fill radius.
 
 ## Key Tunables
 - displacementScale
@@ -22,8 +23,9 @@
 
 ## Verification
 - VS Code diagnostics: no errors in `depth/gyro-parallax copy.html`.
-- Browser smoke test: page loads, images load, orientation controller starts, new sliders render.
+- Browser smoke test: page loads, images load, orientation controller starts, layer rebuild runs at init.
+- Runtime slider test: changing foreground threshold updates value and triggers layer texture rebuild.
 
 ## Open Notes
-- Runtime hole-fill is heuristic; best quality still requires an offline clean background plate + explicit foreground cutout.
+- Current clean background is generated heuristically at runtime; difficult scenes may still benefit from an offline artist-made background plate.
 - Main file parity (`depth/gyro-parallax.html`) is pending if this implementation direction is accepted.

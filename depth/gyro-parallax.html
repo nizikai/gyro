@@ -298,7 +298,6 @@ void main() {
         // Initialize to a sentinel so the first frame always draws
         this._lastRenderedTilt = { x: Infinity, y: Infinity };
         this._rafId            = null;
-        this._returnRafId      = null;
         this._paused           = false;
 
         // WebGL state (populated by init())
@@ -525,66 +524,22 @@ void main() {
        * @param {{ x: number, y: number }} tilt
        */
       setTargetTilt(tilt) {
-        // Cancel any in-progress return animation
-        if (this._returnRafId !== null) {
-          cancelAnimationFrame(this._returnRafId);
-          this._returnRafId = null;
-        }
         this._targetTilt = tilt;
       }
 
       /**
-       * Animates _currentTilt and _targetTilt back to {0,0} over `duration` ms
-       * using a cubic ease-out curve. Runs its own rAF loop independently of _tick.
-       * @param {number} [duration=2000]
+       * Smoothly returns to center by setting target to {0,0}.
+       * The existing render loop lerp handles the animation.
        */
-      returnToCenter(duration) {
-        duration = duration || 2000;
-        console.log('[Renderer] returnToCenter starting — duration:', duration, 'ms');
-
-        // Cancel any existing return animation
-        if (this._returnRafId !== null) {
-          cancelAnimationFrame(this._returnRafId);
-          this._returnRafId = null;
-        }
-
-        const startX = this._currentTilt.x;
-        const startY = this._currentTilt.y;
-        console.log('[Renderer] Starting from tilt:', startX.toFixed(3), startY.toFixed(3));
-        let startTime = null;
-
-        const step = (timestamp) => {
-          if (startTime === null) startTime = timestamp;
-          const elapsed = Math.min(timestamp - startTime, duration);
-          const t = elapsed / duration;
-          // Cubic ease-out: 1 - (1-t)^3
-          const eased = 1 - Math.pow(1 - t, 3);
-
-          const x = startX * (1 - eased);
-          const y = startY * (1 - eased);
-
-          // Write directly into currentTilt and sync targetTilt
-          this._currentTilt.x = x;
-          this._currentTilt.y = y;
-          this._targetTilt.x  = x;
-          this._targetTilt.y  = y;
-          // Force the dirty check to pass
-          this._lastRenderedTilt.x = x + 1;
-
-          if (elapsed >= duration) {
-            console.log('[Renderer] returnToCenter complete');
-            this._currentTilt.x = 0;
-            this._currentTilt.y = 0;
-            this._targetTilt.x  = 0;
-            this._targetTilt.y  = 0;
-            this._returnRafId = null;
-            return;
-          }
-
-          this._returnRafId = requestAnimationFrame(step);
-        };
-
-        this._returnRafId = requestAnimationFrame(step);
+      returnToCenter() {
+        console.log('[Renderer] returnToCenter — setting target to {0,0}');
+        // Slow down the smoothing for a gentler return
+        this._smoothingFactor = 0.03; // slower = smoother (takes ~1-2 seconds)
+        this._targetTilt.x = 0;
+        this._targetTilt.y = 0;
+        // Force a redraw by busting the dirty check
+        this._lastRenderedTilt.x = Infinity;
+        this._lastRenderedTilt.y = Infinity;
       }
 
       /** Resizes the WebGL viewport to match the canvas's current pixel dimensions. */
@@ -600,10 +555,6 @@ void main() {
         if (this._rafId !== null) {
           cancelAnimationFrame(this._rafId);
           this._rafId = null;
-        }
-        if (this._returnRafId !== null) {
-          cancelAnimationFrame(this._returnRafId);
-          this._returnRafId = null;
         }
       }
 
@@ -678,10 +629,6 @@ void main() {
       /** Cancels the rAF loop and releases WebGL resources. */
       destroy() {
         this.pause();
-        if (this._returnRafId !== null) {
-          cancelAnimationFrame(this._returnRafId);
-          this._returnRafId = null;
-        }
         const gl = this._gl;
         if (!gl) return;
         if (this._program)       gl.deleteProgram(this._program);
@@ -1387,7 +1334,7 @@ void main() {
             console.log('[ParallaxEffect] No movement for', this._IDLE_DELAY, 'ms — returning to center');
             this._idleTimer = null;
             if (this._renderer && !this._motionFrozen) {
-              this._renderer.returnToCenter(1000); // 1 second return animation
+              this._renderer.returnToCenter();
             }
           }, this._IDLE_DELAY);
         }

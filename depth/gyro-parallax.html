@@ -1060,7 +1060,7 @@ void main() {
         this._depthMapUrl      = options.depthMapUrl;
         this._displacementScale = (options.displacementScale != null)
           ? options.displacementScale : 30;
-        this._activeDisplacementScale = this._displacementScale; // Current animated value
+        this._activeDisplacementScale = this._displacementScale; // Start at full strength
         this._displacementAnimRafId = null;
         this._smoothingFactor  = (options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
@@ -1463,47 +1463,32 @@ void main() {
       // Accessibility: describe the canvas for screen readers (Requirement 10.3)
       canvas.setAttribute('aria-label', 'Parallax depth photo — tilt your device or move the mouse to explore the scene');
 
-      // --- Debug HUD (remove in production) ---
-      const hud = document.createElement('div');
-      hud.style.cssText = [
+      // --- On-screen debug overlay (visible on mobile) ---
+      const debugOverlay = document.createElement('div');
+      debugOverlay.style.cssText = [
         'position: fixed',
         'top: 10px',
         'left: 10px',
-        'background: rgba(0,0,0,0.75)',
+        'background: rgba(0,0,0,0.85)',
         'color: #0f0',
-        'font: 12px/1.6 monospace',
+        'font: 11px/1.4 monospace',
         'padding: 8px 12px',
         'border-radius: 6px',
         'z-index: 999',
         'pointer-events: none',
         'white-space: pre',
+        'max-width: 90vw',
+        'overflow: hidden',
       ].join('; ');
-      hud.textContent = 'Initializing…';
-      document.body.appendChild(hud);
+      debugOverlay.textContent = 'Initializing…';
+      document.body.appendChild(debugOverlay);
 
-      // Patch window to intercept deviceorientation events for the HUD
-      let hudController = 'none';
-      let hudRaw = { beta: '—', gamma: '—' };
-      let hudTilt = { x: '—', y: '—' };
-
-      window.addEventListener('deviceorientation', (e) => {
-        hudRaw.beta  = e.beta  != null ? e.beta.toFixed(1)  : 'null';
-        hudRaw.gamma = e.gamma != null ? e.gamma.toFixed(1) : 'null';
-      });
-
-      function updateHUD() {
-        hud.textContent = [
-          `controller : ${hudController}`,
-          `raw beta   : ${hudRaw.beta}°`,
-          `raw gamma  : ${hudRaw.gamma}°`,
-          `tilt x     : ${hudTilt.x}`,
-          `tilt y     : ${hudTilt.y}`,
-          `touch pts  : ${navigator.maxTouchPoints}`,
-          `DOE perm   : ${typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function' ? 'required' : 'not required'}`,
-        ].join('\n');
-        requestAnimationFrame(updateHUD);
+      function log(msg) {
+        const timestamp = new Date().toLocaleTimeString();
+        debugOverlay.textContent = `[${timestamp}] ${msg}\n` + debugOverlay.textContent.split('\n').slice(0, 8).join('\n');
       }
-      updateHUD();
+
+      log('Page loaded');
 
       const effect = new ParallaxEffect(canvas, {
         sourceImageUrl:    'input.jpeg',
@@ -1513,44 +1498,20 @@ void main() {
       });
 
       effect.addEventListener('error', (e) => {
-        console.error('[ParallaxEffect] Error:', e.detail.message);
-        hud.textContent = 'ERROR: ' + e.detail.message;
+        log('ERROR: ' + e.detail.message);
       });
 
-      // Monkey-patch setTargetTilt to update HUD
-      const origSetTargetTilt = effect._renderer
-        ? effect._renderer.setTargetTilt.bind(effect._renderer)
-        : null;
-
-      // We'll patch after init since renderer is created inside init()
-      const origInit = effect.init.bind(effect);
-      effect.init = async function() {
-        await origInit();
-        if (effect._renderer) {
-          const orig = effect._renderer.setTargetTilt.bind(effect._renderer);
-          effect._renderer.setTargetTilt = function(tilt) {
-            hudTilt.x = tilt.x.toFixed(3);
-            hudTilt.y = tilt.y.toFixed(3);
-            orig(tilt);
-          };
+      // Intercept console.log calls from ParallaxEffect and Renderer
+      const origLog = console.log;
+      console.log = function(...args) {
+        const msg = args.join(' ');
+        if (msg.includes('[ParallaxEffect]') || msg.includes('[Renderer]')) {
+          log(msg.replace(/\[ParallaxEffect\]|\[Renderer\]/g, '').trim());
         }
-        if (effect._activeController instanceof OrientationController) {
-          hudController = 'gyro';
-        } else if (effect._activeController instanceof MouseController) {
-          hudController = 'mouse';
-        }
-        // Poll controller type since it may switch after fallback
-        setInterval(() => {
-          if (effect._activeController instanceof OrientationController) {
-            hudController = 'gyro';
-          } else if (effect._activeController instanceof MouseController) {
-            hudController = 'mouse';
-          } else {
-            hudController = 'none';
-          }
-        }, 500);
+        origLog.apply(console, args);
       };
 
+      log('Starting init...');
       effect.init();
 
       // ── Live sliders ──────────────────────────────────────────────────────

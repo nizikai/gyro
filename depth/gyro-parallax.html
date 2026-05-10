@@ -1026,9 +1026,11 @@ void main() {
         this._renderer         = null;
         this._motionFrozen     = false;
 
-        // Idle return: after IDLE_DELAY ms of no tilt input, return to {0,0} over ~2s
-        this._IDLE_DELAY   = 1000; // ms before starting the return
-        this._idleTimer    = null;
+        // Idle return: after IDLE_DELAY ms of no *significant* tilt change, return to {0,0}
+        this._IDLE_DELAY         = 1000; // ms before starting the return
+        this._IDLE_THRESHOLD     = 0.02;  // min tilt delta to count as "active" input
+        this._idleTimer          = null;
+        this._lastSignificantTilt = { x: 0, y: 0 };
 
         // Reduced-motion media query state
         this._reducedMotionMQL      = null;
@@ -1266,7 +1268,7 @@ void main() {
             // Restore live smoothing factor when user is actively tilting
             if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer();
+            this._resetIdleTimer(tilt);
           }
         });
 
@@ -1283,7 +1285,7 @@ void main() {
             // Restore live smoothing factor when user is actively moving
             if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer();
+            this._resetIdleTimer(tilt);
           }
         });
 
@@ -1296,24 +1298,36 @@ void main() {
       // -----------------------------------------------------------------------
 
       /**
-       * (Re)starts the idle timer. Call this on every tilt input event.
-       * When the timer fires, the renderer's target tilt is set to {0,0} and
-       * the existing smoothing in the render loop takes care of the gradual return.
+       * (Re)starts the idle timer only if the tilt change is significant.
+       * Ignores tiny gyro noise so the timer can actually expire when the device is still.
+       * When the timer fires, the renderer's target tilt is set to {0,0} with slow smoothing.
        */
-      _resetIdleTimer() {
-        if (this._idleTimer !== null) {
-          clearTimeout(this._idleTimer);
-        }
-        this._idleTimer = setTimeout(() => {
-          this._idleTimer = null;
-          if (this._renderer && !this._motionFrozen) {
-            // Slow down smoothing for the ~2s ease-back animation
-            this._renderer._smoothingFactor = 0.015;
-            this._renderer.setTargetTilt({ x: 0, y: 0 });
-            // Bust the dirty-check sentinel so the lerp actually renders frames
-            this._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+      _resetIdleTimer(tilt) {
+        // Only reset the timer if the tilt change is above the threshold
+        const dx = Math.abs(tilt.x - this._lastSignificantTilt.x);
+        const dy = Math.abs(tilt.y - this._lastSignificantTilt.y);
+        
+        if (dx > this._IDLE_THRESHOLD || dy > this._IDLE_THRESHOLD) {
+          // Significant movement detected — reset timer and update last tilt
+          this._lastSignificantTilt = { x: tilt.x, y: tilt.y };
+          
+          if (this._idleTimer !== null) {
+            clearTimeout(this._idleTimer);
           }
-        }, this._IDLE_DELAY);
+          
+          this._idleTimer = setTimeout(() => {
+            this._idleTimer = null;
+            if (this._renderer && !this._motionFrozen) {
+              // Slow down smoothing for the ~2s ease-back animation
+              this._renderer._smoothingFactor = 0.015;
+              this._renderer.setTargetTilt({ x: 0, y: 0 });
+              // Bust the dirty-check sentinel so the lerp actually renders frames
+              this._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+              // Reset last significant tilt so next movement will trigger properly
+              this._lastSignificantTilt = { x: 0, y: 0 };
+            }
+          }, this._IDLE_DELAY);
+        }
       }
 
       // -----------------------------------------------------------------------

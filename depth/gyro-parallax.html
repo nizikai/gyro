@@ -293,6 +293,10 @@ void main() {
         this._fgScale = (options && options.fgScale != null)
           ? options.fgScale : 0.08;
 
+        // Active displacement is what is actually pushed to the shader each frame.
+        this._activeDisplacementScale = this._displacementScale;
+        this._displacementAnimRafId   = null;
+
         this._currentTilt      = { x: 0, y: 0 };
         this._targetTilt       = { x: 0, y: 0 };
         // Initialize to a sentinel so the first frame always draws
@@ -467,14 +471,25 @@ void main() {
         cur.y += (tgt.y - cur.y) * α;
 
         const last = this._lastRenderedTilt;
-        const TOL  = 0.0001;
+        const STEP_TOL   = 0.0001;
+        const TARGET_TOL = 0.0008;
 
-        // Dirty check: skip draw if tilt hasn't meaningfully changed
-        if (
-          !this._needsRedraw &&
-          Math.abs(cur.x - last.x) < TOL &&
-          Math.abs(cur.y - last.y) < TOL
-        ) {
+        const stepIsTiny = (
+          Math.abs(cur.x - last.x) < STEP_TOL &&
+          Math.abs(cur.y - last.y) < STEP_TOL
+        );
+        const nearTarget = (
+          Math.abs(cur.x - tgt.x) < TARGET_TOL &&
+          Math.abs(cur.y - tgt.y) < TARGET_TOL
+        );
+
+        // Skip redundant frames only when we've effectively converged to target.
+        if (!this._needsRedraw && stepIsTiny && nearTarget) {
+          // Snap to target so the next interaction starts from the true center.
+          cur.x = tgt.x;
+          cur.y = tgt.y;
+          last.x = cur.x;
+          last.y = cur.y;
           this._rafId = requestAnimationFrame(this._tick);
           return;
         }
@@ -489,6 +504,9 @@ void main() {
         gl.uniform2f(u.uTilt, cur.x, cur.y);
 
         // uDisplacementScale: max pixel offset at depth=0 (far), tilt=1
+        if (!Number.isFinite(this._activeDisplacementScale)) {
+          this._activeDisplacementScale = this._displacementScale;
+        }
         gl.uniform1f(u.uDisplacementScale, this._activeDisplacementScale);
 
         // uResolution: canvas pixel dimensions
@@ -527,7 +545,32 @@ void main() {
        * @param {{ x: number, y: number }} tilt
        */
       setTargetTilt(tilt) {
-        this._targetTilt = tilt;
+        this._targetTilt = { x: tilt.x, y: tilt.y };
+      }
+
+      /**
+       * Sets the base displacement scale used for active motion.
+       * Applies immediately to the currently rendered displacement.
+       * @param {number} scale
+       */
+      setDisplacementScale(scale) {
+        if (!Number.isFinite(scale)) return;
+        this._displacementScale = scale;
+        this._activeDisplacementScale = scale;
+        this._needsRedraw = true;
+      }
+
+      /**
+       * Returns the displacement value currently sent to the shader.
+       * @returns {number}
+       */
+      getActiveDisplacementScale() {
+        return this._activeDisplacementScale;
+      }
+
+      /** Forces one redraw on the next rAF tick. */
+      requestRedraw() {
+        this._needsRedraw = true;
       }
 
       /**
@@ -547,15 +590,22 @@ void main() {
           this._activeDisplacementScale = this._displacementScale || 50;
         }
 
+        const safeDuration = Math.max(0, duration || 0);
+        if (safeDuration === 0) {
+          this._activeDisplacementScale = targetScale;
+          this._needsRedraw = true;
+          return;
+        }
+
         const startScale = this._activeDisplacementScale;
         let startTime = null;
 
-        console.log('[Renderer] Animating displacement:', startScale, '→', targetScale, 'over', duration, 'ms');
+        console.log('[Renderer] Animating displacement:', startScale, '→', targetScale, 'over', safeDuration, 'ms');
 
         const step = (timestamp) => {
           if (startTime === null) startTime = timestamp;
-          const elapsed = Math.min(timestamp - startTime, duration);
-          const t = elapsed / duration;
+          const elapsed = Math.min(timestamp - startTime, safeDuration);
+          const t = elapsed / safeDuration;
           // Cubic ease-out: 1 - (1-t)^3
           const eased = 1 - Math.pow(1 - t, 3);
 
@@ -564,7 +614,7 @@ void main() {
           // Force redraw via flag (safe — no object mutation needed)
           this._needsRedraw = true;
 
-          if (elapsed >= duration) {
+          if (elapsed >= safeDuration) {
             this._activeDisplacementScale = targetScale;
             this._displacementAnimRafId = null;
             console.log('[Renderer] Displacement animation complete:', targetScale);
@@ -1068,8 +1118,6 @@ void main() {
         this._depthMapUrl      = options.depthMapUrl;
         this._displacementScale = (options.displacementScale != null)
           ? options.displacementScale : 30;
-        this._activeDisplacementScale = this._displacementScale; // Start at full strength
-        this._displacementAnimRafId = null;
         this._smoothingFactor  = (options.smoothingFactor != null)
           ? options.smoothingFactor : 0.1;
         this._overscan         = (options.overscan != null)
@@ -1082,11 +1130,15 @@ void main() {
         this._renderer         = null;
         this._motionFrozen     = false;
 
-        // Idle return: detect when movement stops, then animate displacement to 0
+        // Idle return: detect when movement stops, then animate back toward center/flat
         this._IDLE_DELAY      = 1000; // ms of no significant movement before return starts
         this._IDLE_THRESHOLD  = 0.01; // min tilt change to count as "movement"
+        this._WAKE_THRESHOLD  = 0.03; // tilt magnitude needed to exit idle-return lock
+        this._RETURN_SCALE    = 1;    // near-flat displacement during idle return
+        this._RETURN_DURATION = 900;  // ms
         this._idleTimer       = null;
         this._lastTilt        = { x: 0, y: 0 };
+        this._isIdleReturning = false;
 
         // Reduced-motion media query state
         this._reducedMotionMQL      = null;
@@ -1321,8 +1373,7 @@ void main() {
         const controller = new OrientationController((tilt) => {
           console.log('[ParallaxEffect] Gyro tilt:', tilt.x.toFixed(3), tilt.y.toFixed(3));
           if (!this._motionFrozen) {
-            this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer(tilt); // only gyro needs idle detection
+            this._handleGyroTilt(tilt);
           }
         });
 
@@ -1346,43 +1397,73 @@ void main() {
       }
 
       // -----------------------------------------------------------------------
-      // Idle return — animate displacement scale to 0 when movement stops
+      // Idle return — animate back toward center when movement stops
       // -----------------------------------------------------------------------
 
       /**
+       * Processes gyro tilt while respecting idle-return lock.
+       * Tiny sensor jitter is ignored while returning to center.
+       * @param {{ x: number, y: number }} tilt
+       */
+      _handleGyroTilt(tilt) {
+        if (!this._renderer) return;
+
+        if (this._isIdleReturning) {
+          const magnitude = Math.hypot(tilt.x, tilt.y);
+          if (magnitude < this._WAKE_THRESHOLD) {
+            return;
+          }
+
+          this._isIdleReturning = false;
+          this._lastTilt = { x: 0, y: 0 };
+          this._renderer.animateDisplacementScale(this._displacementScale, 260);
+        }
+
+        this._renderer.setTargetTilt(tilt);
+        this._resetIdleTimer(tilt);
+      }
+
+      /**
        * Checks if tilt has changed significantly. If yes, resets the idle timer
-       * and ensures displacement scale is at 50 (active).
-       * If no significant movement for IDLE_DELAY ms, animates displacement to 1.
+       * and ensures displacement scale is at active strength.
+       * If no significant movement for IDLE_DELAY ms, animates back to center.
        */
       _resetIdleTimer(tilt) {
         const dx = Math.abs(tilt.x - this._lastTilt.x);
         const dy = Math.abs(tilt.y - this._lastTilt.y);
-        
-        // Only reset timer if movement is significant (filters out gyro noise)
-        if (dx > this._IDLE_THRESHOLD || dy > this._IDLE_THRESHOLD) {
-          console.log('[ParallaxEffect] Significant movement detected:', dx.toFixed(3), dy.toFixed(3));
-          this._lastTilt = { x: tilt.x, y: tilt.y };
-          
-          // Ensure displacement is at active level (50)
-          if (this._renderer && this._renderer._activeDisplacementScale < 50) {
-            this._renderer.animateDisplacementScale(50, 300); // Quick bump to 50
-          }
-          
-          // Clear and restart the timer
-          if (this._idleTimer !== null) {
-            clearTimeout(this._idleTimer);
-          }
-          
-          this._idleTimer = setTimeout(() => {
-            console.log('[ParallaxEffect] No movement for', this._IDLE_DELAY, 'ms — animating to flat');
-            this._idleTimer = null;
-            if (this._renderer && !this._motionFrozen) {
-              // Reset tilt to center AND animate displacement to 1
-              this._renderer.setTargetTilt({ x: 0, y: 0 });
-              this._renderer.animateDisplacementScale(1, 1000); // 1 second smooth ease to 1 (nearly flat)
-            }
-          }, this._IDLE_DELAY);
+
+        // Ignore sensor jitter so it doesn't constantly restart the timer.
+        if (dx <= this._IDLE_THRESHOLD && dy <= this._IDLE_THRESHOLD) {
+          return;
         }
+
+        console.log('[ParallaxEffect] Significant movement detected:', dx.toFixed(3), dy.toFixed(3));
+        this._lastTilt = { x: tilt.x, y: tilt.y };
+        this._isIdleReturning = false;
+
+        // Bring displacement back to active strength if we were in flat idle state.
+        if (this._renderer) {
+          const activeScale = this._renderer.getActiveDisplacementScale();
+          if (activeScale < this._displacementScale - 0.1) {
+            this._renderer.animateDisplacementScale(this._displacementScale, 280);
+          }
+        }
+
+        // Clear and restart the timer
+        if (this._idleTimer !== null) {
+          clearTimeout(this._idleTimer);
+        }
+
+        this._idleTimer = setTimeout(() => {
+          console.log('[ParallaxEffect] No movement for', this._IDLE_DELAY, 'ms — animating to center');
+          this._idleTimer = null;
+          if (this._renderer && !this._motionFrozen) {
+            this._isIdleReturning = true;
+            this._lastTilt = { x: 0, y: 0 };
+            this._renderer.setTargetTilt({ x: 0, y: 0 });
+            this._renderer.animateDisplacementScale(this._RETURN_SCALE, this._RETURN_DURATION);
+          }
+        }, this._IDLE_DELAY);
       }
 
       // -----------------------------------------------------------------------
@@ -1395,6 +1476,12 @@ void main() {
        */
       _freezeMotion() {
         this._motionFrozen = true;
+        this._isIdleReturning = false;
+        this._lastTilt = { x: 0, y: 0 };
+        if (this._idleTimer !== null) {
+          clearTimeout(this._idleTimer);
+          this._idleTimer = null;
+        }
         if (this._activeController) {
           this._activeController.stop();
         }
@@ -1408,6 +1495,8 @@ void main() {
        */
       _unfreezeMotion() {
         this._motionFrozen = false;
+        this._isIdleReturning = false;
+        this._lastTilt = { x: 0, y: 0 };
         // Restart the input controller sequence
         this._startInputController();
       }
@@ -1534,8 +1623,10 @@ void main() {
       const origSetup = effect._setup.bind(effect);
       effect._setup = function() {
         origSetup();
-        loadingText.remove();
-        log('Images loaded and ready');
+        if (this._renderer && this._renderer._gl) {
+          loadingText.remove();
+          log('Images loaded and ready');
+        }
       };
 
       // Intercept console.log calls from ParallaxEffect and Renderer
@@ -1563,9 +1654,8 @@ void main() {
       }
 
       bindSlider('sl-displacement', 'val-displacement', 0, (v) => {
-        if (effect._renderer) effect._renderer._displacementScale = v;
-        // Force redraw by resetting dirty check sentinel
-        if (effect._renderer) effect._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+        effect._displacementScale = v;
+        if (effect._renderer) effect._renderer.setDisplacementScale(v);
       });
 
       bindSlider('sl-smoothing', 'val-smoothing', 2, (v) => {
@@ -1574,12 +1664,12 @@ void main() {
 
       bindSlider('sl-overscan', 'val-overscan', 3, (v) => {
         if (effect._renderer) effect._renderer._overscan = v;
-        if (effect._renderer) effect._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+        if (effect._renderer) effect._renderer.requestRedraw();
       });
 
       bindSlider('sl-fgscale', 'val-fgscale', 3, (v) => {
         if (effect._renderer) effect._renderer._fgScale = v;
-        if (effect._renderer) effect._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
+        if (effect._renderer) effect._renderer.requestRedraw();
       });
 
       // ── Panel show/hide ───────────────────────────────────────────────────

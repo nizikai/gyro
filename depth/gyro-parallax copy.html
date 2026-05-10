@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gyro Parallax Effect</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #111;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Controls panel ── */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 260px;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 14px 16px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 100;
+      font: 11px/1.5 monospace;
+      color: #ccc;
+      user-select: none;
+    }
+
+    #controls-toggle {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      z-index: 101;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    #controls h3 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #fff;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #controls h3 button {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+
+    #controls h3 button:hover { color: #fff; }
+
+    .ctrl-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .ctrl-row:last-child { margin-bottom: 0; }
+
+    .ctrl-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      grid-column: 1 / -1;
+      margin-bottom: 2px;
+    }
+
+    .ctrl-label span:first-child { color: #aaa; }
+    .ctrl-label span:last-child  { color: #fff; font-weight: 600; }
+
+    .ctrl-row input[type=range] {
+      width: 100%;
+      grid-column: 1 / -1;
+      accent-color: #fff;
+      height: 3px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <!-- Controls panel -->
+  <div id="controls">
+    <h3>
+      Parameters
+      <button id="controls-close" title="Hide">✕</button>
+    </h3>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Displacement Scale</span>
+        <span id="val-displacement">60</span>
+      </div>
+      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="60">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Smoothing Factor</span>
+        <span id="val-smoothing">0.06</span>
+      </div>
+      <input type="range" id="sl-smoothing" min="0.01" max="0.3" step="0.01" value="0.06">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Overscan</span>
+        <span id="val-overscan">0.02</span>
+      </div>
+      <input type="range" id="sl-overscan" min="0" max="0.25" step="0.005" value="0.02">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Foreground Scale</span>
+        <span id="val-fgscale">0.08</span>
+      </div>
+      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.08">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Foreground Threshold</span>
+        <span id="val-fgthresh">0.62</span>
+      </div>
+      <input type="range" id="sl-fgthresh" min="0.35" max="0.9" step="0.01" value="0.62">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Foreground Feather</span>
+        <span id="val-fgfeather">0.08</span>
+      </div>
+      <input type="range" id="sl-fgfeather" min="0.005" max="0.25" step="0.005" value="0.08">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Background Fill Radius</span>
+        <span id="val-fillradius">3.0</span>
+      </div>
+      <input type="range" id="sl-fillradius" min="0" max="12" step="0.5" value="3.0">
+    </div>
+  </div>
+
+  <button id="controls-toggle" title="Show controls">⚙</button>
+
+  <script>
+    const VERTEX_SHADER_SOURCE = `
+attribute vec2 aPosition;
+varying vec2 vUV;
+void main() {
+  vUV = vec2(aPosition.x * 0.5 + 0.5, 0.5 - aPosition.y * 0.5);
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+`;
+
+    const FRAGMENT_SHADER_SOURCE = `
+precision mediump float;
+uniform sampler2D uSourceImage;
+uniform sampler2D uDepthMap;
+uniform vec2 uTilt;
+uniform float uDisplacementScale;
+uniform vec2 uResolution;
+uniform vec4 uUVTransform;
+uniform float uOverscan;
+uniform float uFgScale;
+uniform float uFgThreshold;
+uniform float uFgFeather;
+uniform float uFillRadius;
+varying vec2 vUV;
+
+float foregroundMask(float depthValue) {
+  return smoothstep(uFgThreshold - uFgFeather, uFgThreshold + uFgFeather, depthValue);
+}
+
+float backgroundWeight(float depthValue) {
+  return 1.0 - foregroundMask(depthValue);
+}
+
+void accumulateBackgroundSample(vec2 sampleUV, inout vec3 colorSum, inout float weightSum) {
+  vec2 uv = clamp(sampleUV, 0.0, 1.0);
+  float depth = texture2D(uDepthMap, uv).r;
+  float w = backgroundWeight(depth);
+  colorSum += texture2D(uSourceImage, uv).rgb * w;
+  weightSum += w;
+}
+
+vec4 sampleBackgroundColor(vec2 uv, vec2 uvPerPixel, vec2 tilt) {
+  vec3 colorSum = vec3(0.0);
+  float weightSum = 0.0;
+
+  accumulateBackgroundSample(uv, colorSum, weightSum);
+
+  float radius = uFillRadius;
+  if (radius > 0.01) {
+    vec2 ring1 = uvPerPixel * radius;
+    vec2 ring2 = ring1 * 2.0;
+    vec2 bias = vec2(0.0);
+    float tiltLen = length(tilt);
+    if (tiltLen > 0.001) {
+      bias = normalize(tilt) * radius * 0.35 * uvPerPixel;
+    }
+
+    const float DIAG = 0.70710678;
+    vec2 d1 = vec2(ring1.x * DIAG, ring1.y * DIAG);
+    vec2 d2 = vec2(ring2.x * DIAG, ring2.y * DIAG);
+    vec2 baseUV = uv - bias;
+
+    accumulateBackgroundSample(baseUV + vec2( ring1.x, 0.0), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(-ring1.x, 0.0), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(0.0,  ring1.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(0.0, -ring1.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2( d1.x,  d1.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(-d1.x,  d1.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2( d1.x, -d1.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(-d1.x, -d1.y), colorSum, weightSum);
+
+    accumulateBackgroundSample(baseUV + vec2( ring2.x, 0.0), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(-ring2.x, 0.0), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(0.0,  ring2.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(0.0, -ring2.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2( d2.x,  d2.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(-d2.x,  d2.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2( d2.x, -d2.y), colorSum, weightSum);
+    accumulateBackgroundSample(baseUV + vec2(-d2.x, -d2.y), colorSum, weightSum);
+  }
+
+  if (weightSum < 0.0001) {
+    vec2 fallbackUV = clamp(uv, 0.0, 1.0);
+    return texture2D(uSourceImage, fallbackUV);
+  }
+
+  return vec4(colorSum / weightSum, 1.0);
+}
+
+void main() {
+  vec2 scale  = uUVTransform.xy;
+  vec2 offset = uUVTransform.zw;
+
+  if (vUV.x < offset.x || vUV.x > offset.x + scale.x ||
+      vUV.y < offset.y || vUV.y > offset.y + scale.y) {
+    gl_FragColor = vec4(0.067, 0.067, 0.067, 1.0);
+    return;
+  }
+
+  vec2 imageUV = (vUV - offset) / scale;
+  imageUV = imageUV * (1.0 - 2.0 * uOverscan) + uOverscan;
+  vec2 uvPerPixel = 1.0 / (uResolution * scale);
+
+  float depth = texture2D(uDepthMap, imageUV).r;
+  vec2 parallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
+
+  vec2 bgUV = clamp(imageUV + parallaxOffset, 0.0, 1.0);
+  vec4 bgColor = sampleBackgroundColor(bgUV, uvPerPixel, uTilt);
+
+  vec2 fgOffset = (imageUV - 0.5) * depth * uFgScale;
+  vec2 fgUV = clamp(imageUV + parallaxOffset - fgOffset, 0.0, 1.0);
+  vec4 fgColor = texture2D(uSourceImage, fgUV);
+  float fgDepth = texture2D(uDepthMap, fgUV).r;
+  float fgMask = foregroundMask(fgDepth);
+
+  vec3 color = mix(bgColor.rgb, fgColor.rgb, fgMask);
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
+    function computeUVTransform(imageWidth, imageHeight, canvasWidth, canvasHeight) {
+      const imageAspect  = imageWidth / imageHeight;
+      const canvasAspect = canvasWidth / canvasHeight;
+
+      if (imageAspect > canvasAspect) {
+        const scaleY = canvasAspect / imageAspect;
+        return { scaleX: 1.0, scaleY: scaleY, offsetX: 0.0, offsetY: (1.0 - scaleY) / 2.0 };
+      }
+
+      const scaleX = imageAspect / canvasAspect;
+      return { scaleX: scaleX, scaleY: 1.0, offsetX: (1.0 - scaleX) / 2.0, offsetY: 0.0 };
+    }
+
+    class Renderer {
+      constructor(canvas, sourceImage, depthMap, options) {
+        this._canvas = canvas;
+        this._sourceImage = sourceImage;
+        this._depthMap = depthMap;
+        this._displacementScale = (options && options.displacementScale != null)
+          ? options.displacementScale : 30;
+        this._smoothingFactor = (options && options.smoothingFactor != null)
+          ? options.smoothingFactor : 0.1;
+        this._overscan = (options && options.overscan != null)
+          ? options.overscan : 0.02;
+        this._fgScale = (options && options.fgScale != null)
+          ? options.fgScale : 0.08;
+        this._fgThreshold = (options && options.fgThreshold != null)
+          ? options.fgThreshold : 0.62;
+        this._fgFeather = (options && options.fgFeather != null)
+          ? options.fgFeather : 0.08;
+        this._fillRadius = (options && options.fillRadius != null)
+          ? options.fillRadius : 3.0;
+
+        this._currentTilt = { x: 0, y: 0 };
+        this._targetTilt = { x: 0, y: 0 };
+        this._lastRenderedTilt = { x: Infinity, y: Infinity };
+        this._rafId = null;
+        this._paused = false;
+        this._needsRedraw = false;
+
+        this._gl = null;
+        this._program = null;
+        this._quadBuffer = null;
+        this._sourceTexture = null;
+        this._depthTexture = null;
+        this._uniforms = {};
+
+        this._tick = this._tick.bind(this);
+      }
+
+      init() {
+        const gl = this._canvas.getContext('webgl') || this._canvas.getContext('webgl2');
+        if (!gl) return false;
+        this._gl = gl;
+        gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+
+        const vertShader = this._compileShader(gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
+        const fragShader = this._compileShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
+        if (!vertShader || !fragShader) return false;
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertShader);
+        gl.attachShader(program, fragShader);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          console.error('Shader program link error:', gl.getProgramInfoLog(program));
+          gl.deleteProgram(program);
+          return false;
+        }
+
+        gl.deleteShader(vertShader);
+        gl.deleteShader(fragShader);
+
+        this._program = program;
+        gl.useProgram(program);
+
+        const quadVertices = new Float32Array([
+          -1, -1,
+           1, -1,
+          -1,  1,
+          -1,  1,
+           1, -1,
+           1,  1,
+        ]);
+        this._quadBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+        const aPosition = gl.getAttribLocation(program, 'aPosition');
+        gl.enableVertexAttribArray(aPosition);
+        gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+
+        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
+        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
+
+        this._uniforms = {
+          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
+          uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
+          uTilt: gl.getUniformLocation(program, 'uTilt'),
+          uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
+          uResolution: gl.getUniformLocation(program, 'uResolution'),
+          uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
+          uOverscan: gl.getUniformLocation(program, 'uOverscan'),
+          uFgScale: gl.getUniformLocation(program, 'uFgScale'),
+          uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
+          uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
+          uFillRadius: gl.getUniformLocation(program, 'uFillRadius'),
+        };
+
+        gl.uniform1i(this._uniforms.uSourceImage, 0);
+        gl.uniform1i(this._uniforms.uDepthMap, 1);
+
+        this._rafId = requestAnimationFrame(this._tick);
+        return true;
+      }
+
+      _compileShader(type, source) {
+        const gl = this._gl;
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+          gl.deleteShader(shader);
+          return null;
+        }
+        return shader;
+      }
+
+      _uploadTexture(gl, image, unit) {
+        const texture = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        return texture;
+      }
+
+      _tick() {
+        if (this._paused) return;
+
+        const alpha = this._smoothingFactor;
+        const cur = this._currentTilt;
+        const tgt = this._targetTilt;
+
+        cur.x += (tgt.x - cur.x) * alpha;
+        cur.y += (tgt.y - cur.y) * alpha;
+
+        const last = this._lastRenderedTilt;
+        const STEP_TOL = 0.0001;
+        const TARGET_TOL = 0.0008;
+        const stepIsTiny = Math.abs(cur.x - last.x) < STEP_TOL && Math.abs(cur.y - last.y) < STEP_TOL;
+        const nearTarget = Math.abs(cur.x - tgt.x) < TARGET_TOL && Math.abs(cur.y - tgt.y) < TARGET_TOL;
+
+        if (!this._needsRedraw && stepIsTiny && nearTarget) {
+          cur.x = tgt.x;
+          cur.y = tgt.y;
+          last.x = cur.x;
+          last.y = cur.y;
+          this._rafId = requestAnimationFrame(this._tick);
+          return;
+        }
+        this._needsRedraw = false;
+
+        const gl = this._gl;
+        const canvas = this._canvas;
+        const u = this._uniforms;
+
+        gl.uniform2f(u.uTilt, cur.x, cur.y);
+        gl.uniform1f(u.uDisplacementScale, this._displacementScale);
+        gl.uniform2f(u.uResolution, canvas.width, canvas.height);
+
+        const uv = computeUVTransform(
+          this._sourceImage.naturalWidth || this._sourceImage.width,
+          this._sourceImage.naturalHeight || this._sourceImage.height,
+          canvas.width,
+          canvas.height
+        );
+        gl.uniform4f(u.uUVTransform, uv.scaleX, uv.scaleY, uv.offsetX, uv.offsetY);
+        gl.uniform1f(u.uOverscan, this._overscan);
+        gl.uniform1f(u.uFgScale, this._fgScale);
+        gl.uniform1f(u.uFgThreshold, this._fgThreshold);
+        gl.uniform1f(u.uFgFeather, this._fgFeather);
+        gl.uniform1f(u.uFillRadius, this._fillRadius);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        last.x = cur.x;
+        last.y = cur.y;
+        this._rafId = requestAnimationFrame(this._tick);
+      }
+
+      setTargetTilt(tilt) {
+        this._targetTilt = { x: tilt.x, y: tilt.y };
+      }
+
+      setDisplacementScale(scale) {
+        if (!Number.isFinite(scale)) return;
+        this._displacementScale = scale;
+        this._needsRedraw = true;
+      }
+
+      setSmoothingFactor(factor) {
+        if (!Number.isFinite(factor) || factor <= 0) return;
+        this._smoothingFactor = factor;
+      }
+
+      setOverscan(value) {
+        if (!Number.isFinite(value) || value < 0) return;
+        this._overscan = value;
+        this._needsRedraw = true;
+      }
+
+      setForegroundScale(value) {
+        if (!Number.isFinite(value) || value < 0) return;
+        this._fgScale = value;
+        this._needsRedraw = true;
+      }
+
+      setForegroundThreshold(value) {
+        if (!Number.isFinite(value)) return;
+        this._fgThreshold = Math.max(0, Math.min(1, value));
+        this._needsRedraw = true;
+      }
+
+      setForegroundFeather(value) {
+        if (!Number.isFinite(value) || value < 0) return;
+        this._fgFeather = Math.max(0.001, value);
+        this._needsRedraw = true;
+      }
+
+      setFillRadius(value) {
+        if (!Number.isFinite(value) || value < 0) return;
+        this._fillRadius = value;
+        this._needsRedraw = true;
+      }
+
+      requestRedraw() {
+        this._needsRedraw = true;
+      }
+
+      resize() {
+        if (this._gl) {
+          this._gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+          this._needsRedraw = true;
+        }
+      }
+
+      pause() {
+        this._paused = true;
+        if (this._rafId !== null) {
+          cancelAnimationFrame(this._rafId);
+          this._rafId = null;
+        }
+      }
+
+      resume() {
+        this._paused = false;
+
+        const gl = this._gl;
+        if (!gl) return;
+
+        const vertShader = this._compileShader(gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
+        const fragShader = this._compileShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
+        if (!vertShader || !fragShader) return;
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertShader);
+        gl.attachShader(program, fragShader);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          console.error('Shader program link error on resume:', gl.getProgramInfoLog(program));
+          gl.deleteProgram(program);
+          return;
+        }
+
+        gl.deleteShader(vertShader);
+        gl.deleteShader(fragShader);
+
+        if (this._program) gl.deleteProgram(this._program);
+        this._program = program;
+        gl.useProgram(program);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuffer);
+        const aPosition = gl.getAttribLocation(program, 'aPosition');
+        gl.enableVertexAttribArray(aPosition);
+        gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+
+        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
+        if (this._depthTexture) gl.deleteTexture(this._depthTexture);
+        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
+        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
+
+        this._uniforms = {
+          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
+          uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
+          uTilt: gl.getUniformLocation(program, 'uTilt'),
+          uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
+          uResolution: gl.getUniformLocation(program, 'uResolution'),
+          uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
+          uOverscan: gl.getUniformLocation(program, 'uOverscan'),
+          uFgScale: gl.getUniformLocation(program, 'uFgScale'),
+          uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
+          uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
+          uFillRadius: gl.getUniformLocation(program, 'uFillRadius'),
+        };
+
+        gl.uniform1i(this._uniforms.uSourceImage, 0);
+        gl.uniform1i(this._uniforms.uDepthMap, 1);
+
+        this._needsRedraw = true;
+        this._rafId = requestAnimationFrame(this._tick);
+      }
+
+      destroy() {
+        this.pause();
+        const gl = this._gl;
+        if (!gl) return;
+        if (this._program) gl.deleteProgram(this._program);
+        if (this._quadBuffer) gl.deleteBuffer(this._quadBuffer);
+        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
+        if (this._depthTexture) gl.deleteTexture(this._depthTexture);
+        this._gl = null;
+      }
+    }
+
+    function normalizeAngle(angle, baseline) {
+      const delta = angle - baseline;
+      const clamped = Math.max(-20, Math.min(20, delta));
+      return clamped / 20;
+    }
+
+    class OrientationController {
+      constructor(onTilt) {
+        this._onTilt = onTilt;
+        this._baseBeta = null;
+        this._baseGamma = null;
+        this._onDeviceOrientation = this._onDeviceOrientation.bind(this);
+      }
+
+      start() {
+        window.addEventListener('deviceorientation', this._onDeviceOrientation);
+      }
+
+      stop() {
+        window.removeEventListener('deviceorientation', this._onDeviceOrientation);
+      }
+
+      _onDeviceOrientation(e) {
+        if (e.beta === null || e.gamma === null) return;
+
+        if (this._baseBeta === null && this._baseGamma === null) {
+          this._baseBeta = e.beta;
+          this._baseGamma = e.gamma;
+          this._onTilt({ x: 0, y: 0 });
+          return;
+        }
+
+        this._onTilt({
+          x: normalizeAngle(e.gamma, this._baseGamma),
+          y: normalizeAngle(e.beta, this._baseBeta),
+        });
+      }
+    }
+
+    class PermissionManager {
+      constructor(onGranted, onDenied) {
+        this._onGranted = onGranted;
+        this._onDenied = onDenied;
+        this._overlay = null;
+      }
+
+      needsPermission() {
+        if (
+          typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function'
+        ) {
+          return true;
+        }
+        if (
+          typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function'
+        ) {
+          return true;
+        }
+        return false;
+      }
+
+      showPrompt(triggerElement) {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = [
+          'position: absolute',
+          'top: 0',
+          'left: 0',
+          'right: 0',
+          'bottom: 0',
+          'background: rgba(0, 0, 0, 0.7)',
+          'display: flex',
+          'align-items: center',
+          'justify-content: center',
+          'cursor: pointer',
+          'z-index: 10',
+          'color: white',
+          'font-family: sans-serif',
+          'font-size: 18px',
+          'text-align: center',
+        ].join('; ');
+
+        overlay.textContent = 'Tap to enable parallax effect';
+        overlay.addEventListener('click', () => this.requestPermission(), { once: true });
+
+        const container = (triggerElement && triggerElement.parentNode)
+          ? triggerElement.parentNode
+          : document.body;
+        container.appendChild(overlay);
+        this._overlay = overlay;
+      }
+
+      requestPermission() {
+        let permissionPromise;
+
+        if (
+          typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function'
+        ) {
+          permissionPromise = DeviceOrientationEvent.requestPermission();
+        } else if (
+          typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function'
+        ) {
+          permissionPromise = DeviceMotionEvent.requestPermission();
+        } else {
+          permissionPromise = Promise.resolve('denied');
+        }
+
+        permissionPromise.then((result) => {
+          this._removeOverlay();
+          if (result === 'granted') {
+            this._onGranted();
+          } else {
+            this._onDenied();
+          }
+        }).catch((err) => {
+          console.warn('PermissionManager: requestPermission() threw:', err);
+          this._removeOverlay();
+          this._onDenied();
+        });
+      }
+
+      _removeOverlay() {
+        if (this._overlay) {
+          if (this._overlay.parentNode) {
+            this._overlay.parentNode.removeChild(this._overlay);
+          }
+          this._overlay = null;
+        }
+      }
+    }
+
+    class ParallaxEffect {
+      constructor(canvas, options) {
+        this._canvas = canvas;
+        this._sourceImageUrl = options.sourceImageUrl;
+        this._depthMapUrl = options.depthMapUrl;
+        this._displacementScale = (options.displacementScale != null)
+          ? options.displacementScale : 30;
+        this._smoothingFactor = (options.smoothingFactor != null)
+          ? options.smoothingFactor : 0.1;
+        this._overscan = (options.overscan != null)
+          ? options.overscan : 0.02;
+        this._fgScale = (options.fgScale != null)
+          ? options.fgScale : 0.08;
+        this._fgThreshold = (options.fgThreshold != null)
+          ? options.fgThreshold : 0.62;
+        this._fgFeather = (options.fgFeather != null)
+          ? options.fgFeather : 0.08;
+        this._fillRadius = (options.fillRadius != null)
+          ? options.fillRadius : 3.0;
+
+        this._activeController = null;
+        this._renderer = null;
+
+        this._resizeListener = null;
+        this._onContextLost = null;
+        this._onContextRestored = null;
+        this._listeners = [];
+      }
+
+      addEventListener(type, listener) {
+        this._listeners.push({ type, listener });
+      }
+
+      removeEventListener(type, listener) {
+        this._listeners = this._listeners.filter(
+          (entry) => !(entry.type === type && entry.listener === listener)
+        );
+      }
+
+      dispatchEvent(event) {
+        for (const entry of this._listeners) {
+          if (entry.type === event.type) entry.listener(event);
+        }
+      }
+
+      async init() {
+        let sourceImage;
+        let depthMap;
+        try {
+          [sourceImage, depthMap] = await Promise.all([
+            this._loadImage(this._sourceImageUrl, 'source image'),
+            this._loadImage(this._depthMapUrl, 'depth map'),
+          ]);
+        } catch (err) {
+          return;
+        }
+
+        this._sourceImage = sourceImage;
+        this._depthMap = depthMap;
+        this._setup();
+      }
+
+      _loadImage(url, label) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => {
+            this.dispatchEvent(new CustomEvent('error', {
+              detail: { message: `Failed to load ${label}: ${url}` },
+            }));
+            reject(new Error(`Failed to load ${label}: ${url}`));
+          };
+          img.src = url;
+        });
+      }
+
+      _setup() {
+        const dpr = window.devicePixelRatio || 1;
+        const initW = Math.round(this._canvas.clientWidth * dpr);
+        const initH = Math.round(this._canvas.clientHeight * dpr);
+        if (initW > 0 && initH > 0) {
+          this._canvas.width = initW;
+          this._canvas.height = initH;
+        }
+
+        this._renderer = new Renderer(this._canvas, this._sourceImage, this._depthMap, {
+          displacementScale: this._displacementScale,
+          smoothingFactor: this._smoothingFactor,
+          overscan: this._overscan,
+          fgScale: this._fgScale,
+          fgThreshold: this._fgThreshold,
+          fgFeather: this._fgFeather,
+          fillRadius: this._fillRadius,
+        });
+
+        const webglOk = this._renderer.init();
+        if (!webglOk) {
+          this.dispatchEvent(new CustomEvent('error', {
+            detail: { message: 'WebGL not supported' },
+          }));
+          return;
+        }
+
+        this._onContextLost = (e) => {
+          e.preventDefault();
+          this._renderer.pause();
+        };
+        this._onContextRestored = () => {
+          this._renderer.resume();
+        };
+        this._canvas.addEventListener('webglcontextlost', this._onContextLost);
+        this._canvas.addEventListener('webglcontextrestored', this._onContextRestored);
+
+        this._resizeListener = () => {
+          const scale = window.devicePixelRatio || 1;
+          const w = Math.round(this._canvas.clientWidth * scale);
+          const h = Math.round(this._canvas.clientHeight * scale);
+          if (w === 0 || h === 0) return;
+          this._canvas.width = w;
+          this._canvas.height = h;
+          this._renderer.resize();
+        };
+        window.addEventListener('resize', this._resizeListener);
+
+        this._startInputController();
+      }
+
+      _startInputController() {
+        if (typeof DeviceOrientationEvent === 'undefined') {
+          console.warn('[ParallaxEffect] DeviceOrientationEvent not supported on this device');
+          return;
+        }
+
+        const permissionManager = new PermissionManager(
+          () => {
+            console.log('[ParallaxEffect] Orientation permission granted');
+            this._startOrientationController();
+          },
+          () => {
+            console.warn('[ParallaxEffect] Orientation permission denied');
+          }
+        );
+
+        if (permissionManager.needsPermission()) {
+          console.log('[ParallaxEffect] Permission prompt shown');
+          permissionManager.showPrompt(this._canvas);
+        } else {
+          this._startOrientationController();
+        }
+      }
+
+      _startOrientationController() {
+        if (this._activeController) {
+          this._activeController.stop();
+          this._activeController = null;
+        }
+
+        console.log('[ParallaxEffect] Orientation controller started');
+        const controller = new OrientationController((tilt) => {
+          if (this._renderer) this._renderer.setTargetTilt(tilt);
+        });
+
+        this._activeController = controller;
+        controller.start();
+      }
+
+      destroy() {
+        if (this._resizeListener) {
+          window.removeEventListener('resize', this._resizeListener);
+          this._resizeListener = null;
+        }
+
+        if (this._activeController) {
+          this._activeController.stop();
+          this._activeController = null;
+        }
+
+        if (this._onContextLost) {
+          this._canvas.removeEventListener('webglcontextlost', this._onContextLost);
+          this._onContextLost = null;
+        }
+        if (this._onContextRestored) {
+          this._canvas.removeEventListener('webglcontextrestored', this._onContextRestored);
+          this._onContextRestored = null;
+        }
+
+        if (this._renderer) {
+          this._renderer.destroy();
+          this._renderer = null;
+        }
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const canvas = document.getElementById('canvas');
+      canvas.setAttribute('aria-label', 'Parallax depth image controlled by device gyro');
+
+      const debugOverlay = document.createElement('div');
+      debugOverlay.style.cssText = [
+        'position: fixed',
+        'top: 10px',
+        'left: 10px',
+        'background: rgba(0,0,0,0.85)',
+        'color: #0f0',
+        'font: 11px/1.4 monospace',
+        'padding: 8px 12px',
+        'border-radius: 6px',
+        'z-index: 999',
+        'pointer-events: none',
+        'white-space: pre',
+        'max-width: 90vw',
+        'overflow: hidden',
+      ].join('; ');
+      debugOverlay.textContent = 'Initializing...';
+      document.body.appendChild(debugOverlay);
+
+      function log(msg) {
+        const timestamp = new Date().toLocaleTimeString();
+        const history = debugOverlay.textContent.split('\n').slice(0, 8).join('\n');
+        debugOverlay.textContent = `[${timestamp}] ${msg}\n${history}`;
+      }
+
+      const loadingText = document.createElement('div');
+      loadingText.style.cssText = [
+        'position: absolute',
+        'top: 50%',
+        'left: 50%',
+        'transform: translate(-50%, -50%)',
+        'color: #888',
+        'font: 14px/1.4 sans-serif',
+        'text-align: center',
+        'pointer-events: none',
+        'z-index: 1',
+      ].join('; ');
+      loadingText.textContent = 'Loading images...';
+      document.body.appendChild(loadingText);
+
+      const effect = new ParallaxEffect(canvas, {
+        sourceImageUrl: 'input.jpeg',
+        depthMapUrl: 'depth.png',
+        displacementScale: 50,
+        smoothingFactor: 0.06,
+        fgThreshold: 0.62,
+        fgFeather: 0.08,
+        fillRadius: 3.0,
+      });
+
+      effect.addEventListener('error', (e) => {
+        log('ERROR: ' + e.detail.message);
+        loadingText.textContent = 'Error: ' + e.detail.message;
+      });
+
+      const originalSetup = effect._setup.bind(effect);
+      effect._setup = function() {
+        originalSetup();
+        if (this._renderer && this._renderer._gl) {
+          loadingText.remove();
+          log('Images loaded and ready');
+        }
+      };
+
+      const originalLog = console.log;
+      console.log = function(...args) {
+        const msg = args.join(' ');
+        if (msg.includes('[ParallaxEffect]') || msg.includes('[Renderer]')) {
+          log(msg.replace(/\[ParallaxEffect\]|\[Renderer\]/g, '').trim());
+        }
+        originalLog.apply(console, args);
+      };
+
+      log('Starting init...');
+      effect.init();
+
+      function bindSlider(sliderId, valueId, decimals, onChange) {
+        const slider = document.getElementById(sliderId);
+        const label = document.getElementById(valueId);
+        slider.addEventListener('input', () => {
+          const value = parseFloat(slider.value);
+          label.textContent = value.toFixed(decimals);
+          onChange(value);
+        });
+      }
+
+      bindSlider('sl-displacement', 'val-displacement', 0, (value) => {
+        effect._displacementScale = value;
+        if (effect._renderer) effect._renderer.setDisplacementScale(value);
+      });
+
+      bindSlider('sl-smoothing', 'val-smoothing', 2, (value) => {
+        effect._smoothingFactor = value;
+        if (effect._renderer) effect._renderer.setSmoothingFactor(value);
+      });
+
+      bindSlider('sl-overscan', 'val-overscan', 3, (value) => {
+        effect._overscan = value;
+        if (effect._renderer) effect._renderer.setOverscan(value);
+      });
+
+      bindSlider('sl-fgscale', 'val-fgscale', 3, (value) => {
+        effect._fgScale = value;
+        if (effect._renderer) effect._renderer.setForegroundScale(value);
+      });
+
+      bindSlider('sl-fgthresh', 'val-fgthresh', 2, (value) => {
+        effect._fgThreshold = value;
+        if (effect._renderer) effect._renderer.setForegroundThreshold(value);
+      });
+
+      bindSlider('sl-fgfeather', 'val-fgfeather', 3, (value) => {
+        effect._fgFeather = value;
+        if (effect._renderer) effect._renderer.setForegroundFeather(value);
+      });
+
+      bindSlider('sl-fillradius', 'val-fillradius', 1, (value) => {
+        effect._fillRadius = value;
+        if (effect._renderer) effect._renderer.setFillRadius(value);
+      });
+
+      const panel = document.getElementById('controls');
+      const toggle = document.getElementById('controls-toggle');
+      const close = document.getElementById('controls-close');
+
+      close.addEventListener('click', () => {
+        panel.style.display = 'none';
+        toggle.style.display = 'flex';
+      });
+
+      toggle.addEventListener('click', () => {
+        panel.style.display = 'block';
+        toggle.style.display = 'none';
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1028,7 +1028,7 @@ void main() {
 
         // Idle return: after IDLE_DELAY ms of no *significant* tilt change, return to {0,0}
         this._IDLE_DELAY         = 1000; // ms before starting the return
-        this._IDLE_THRESHOLD     = 0.02;  // min tilt delta to count as "active" input
+        this._IDLE_THRESHOLD     = 0.2;  // min tilt delta to count as "active" input
         this._idleTimer          = null;
         this._lastSignificantTilt = { x: 0, y: 0 };
 

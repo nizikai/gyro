@@ -1352,7 +1352,7 @@ void main() {
       /**
        * Checks if tilt has changed significantly. If yes, resets the idle timer
        * and ensures displacement scale is at 50 (active).
-       * If no significant movement for IDLE_DELAY ms, animates displacement to 0.
+       * If no significant movement for IDLE_DELAY ms, animates displacement to 1.
        */
       _resetIdleTimer(tilt) {
         const dx = Math.abs(tilt.x - this._lastTilt.x);
@@ -1377,6 +1377,8 @@ void main() {
             console.log('[ParallaxEffect] No movement for', this._IDLE_DELAY, 'ms — animating to flat');
             this._idleTimer = null;
             if (this._renderer && !this._motionFrozen) {
+              // Reset tilt to center AND animate displacement to 1
+              this._renderer.setTargetTilt({ x: 0, y: 0 });
               this._renderer.animateDisplacementScale(1, 1000); // 1 second smooth ease to 1 (nearly flat)
             }
           }, this._IDLE_DELAY);
@@ -1498,6 +1500,24 @@ void main() {
 
       log('Page loaded');
 
+      // Show loading state — canvas already declared above
+      canvas.style.background = '#222';
+      
+      const loadingText = document.createElement('div');
+      loadingText.style.cssText = [
+        'position: absolute',
+        'top: 50%',
+        'left: 50%',
+        'transform: translate(-50%, -50%)',
+        'color: #888',
+        'font: 14px/1.4 sans-serif',
+        'text-align: center',
+        'pointer-events: none',
+        'z-index: 1',
+      ].join('; ');
+      loadingText.textContent = 'Loading images...';
+      document.body.appendChild(loadingText);
+
       const effect = new ParallaxEffect(canvas, {
         sourceImageUrl:    'input.jpeg',
         depthMapUrl:       'depth.png',
@@ -1507,7 +1527,16 @@ void main() {
 
       effect.addEventListener('error', (e) => {
         log('ERROR: ' + e.detail.message);
+        loadingText.textContent = 'Error: ' + e.detail.message;
       });
+
+      // Remove loading text when effect is ready
+      const origSetup = effect._setup.bind(effect);
+      effect._setup = function() {
+        origSetup();
+        loadingText.remove();
+        log('Images loaded and ready');
+      };
 
       // Intercept console.log calls from ParallaxEffect and Renderer
       const origLog = console.log;

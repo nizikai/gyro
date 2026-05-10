@@ -299,6 +299,7 @@ void main() {
         this._lastRenderedTilt = { x: Infinity, y: Infinity };
         this._rafId            = null;
         this._paused           = false;
+        this._needsRedraw      = false; // set true to force a draw regardless of dirty check
 
         // WebGL state (populated by init())
         this._gl             = null;
@@ -470,12 +471,14 @@ void main() {
 
         // Dirty check: skip draw if tilt hasn't meaningfully changed
         if (
+          !this._needsRedraw &&
           Math.abs(cur.x - last.x) < TOL &&
           Math.abs(cur.y - last.y) < TOL
         ) {
           this._rafId = requestAnimationFrame(this._tick);
           return;
         }
+        this._needsRedraw = false;
 
         // --- Upload uniforms and draw ---
         const gl     = this._gl;
@@ -539,10 +542,15 @@ void main() {
           this._displacementAnimRafId = null;
         }
 
+        // Guard: ensure _activeDisplacementScale is a valid number
+        if (typeof this._activeDisplacementScale !== 'number' || isNaN(this._activeDisplacementScale)) {
+          this._activeDisplacementScale = this._displacementScale || 50;
+        }
+
         const startScale = this._activeDisplacementScale;
         let startTime = null;
 
-        console.log('[Renderer] Animating displacement:', startScale.toFixed(1), '→', targetScale, 'over', duration, 'ms');
+        console.log('[Renderer] Animating displacement:', startScale, '→', targetScale, 'over', duration, 'ms');
 
         const step = (timestamp) => {
           if (startTime === null) startTime = timestamp;
@@ -553,8 +561,8 @@ void main() {
 
           this._activeDisplacementScale = startScale + (targetScale - startScale) * eased;
           
-          // Force redraw
-          this._lastRenderedTilt.x = Infinity;
+          // Force redraw via flag (safe — no object mutation needed)
+          this._needsRedraw = true;
 
           if (elapsed >= duration) {
             this._activeDisplacementScale = targetScale;
@@ -1314,7 +1322,7 @@ void main() {
           console.log('[ParallaxEffect] Gyro tilt:', tilt.x.toFixed(3), tilt.y.toFixed(3));
           if (!this._motionFrozen) {
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer(tilt);
+            this._resetIdleTimer(tilt); // only gyro needs idle detection
           }
         });
 
@@ -1329,7 +1337,7 @@ void main() {
         const controller = new MouseController(this._canvas, (tilt) => {
           if (!this._motionFrozen) {
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer(tilt);
+            // No idle timer for mouse — MouseController handles its own return on mouseleave
           }
         });
 
@@ -1369,7 +1377,7 @@ void main() {
             console.log('[ParallaxEffect] No movement for', this._IDLE_DELAY, 'ms — animating to flat');
             this._idleTimer = null;
             if (this._renderer && !this._motionFrozen) {
-              this._renderer.animateDisplacementScale(0, 1000); // 1 second smooth ease to 0
+              this._renderer.animateDisplacementScale(1, 1000); // 1 second smooth ease to 1 (nearly flat)
             }
           }, this._IDLE_DELAY);
         }

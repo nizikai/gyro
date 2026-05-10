@@ -540,6 +540,7 @@ void main() {
        */
       returnToCenter(duration) {
         duration = duration || 2000;
+        console.log('[Renderer] returnToCenter starting — duration:', duration, 'ms');
 
         // Cancel any existing return animation
         if (this._returnRafId !== null) {
@@ -549,6 +550,7 @@ void main() {
 
         const startX = this._currentTilt.x;
         const startY = this._currentTilt.y;
+        console.log('[Renderer] Starting from tilt:', startX.toFixed(3), startY.toFixed(3));
         let startTime = null;
 
         const step = (timestamp) => {
@@ -570,6 +572,7 @@ void main() {
           this._lastRenderedTilt.x = x + 1;
 
           if (elapsed >= duration) {
+            console.log('[Renderer] returnToCenter complete');
             this._currentTilt.x = 0;
             this._currentTilt.y = 0;
             this._targetTilt.x  = 0;
@@ -1091,9 +1094,11 @@ void main() {
         this._renderer         = null;
         this._motionFrozen     = false;
 
-        // Idle return: after IDLE_DELAY ms, smoothly return to {0,0} over 2s
-        this._IDLE_DELAY  = 1000; // ms before starting the return
-        this._idleTimer   = null;
+        // Idle return: detect when movement stops, then return to {0,0} over 1s
+        this._IDLE_DELAY      = 500;  // ms of no significant movement before return starts
+        this._IDLE_THRESHOLD  = 0.01; // min tilt change to count as "movement"
+        this._idleTimer       = null;
+        this._lastTilt        = { x: 0, y: 0 };
 
         // Reduced-motion media query state
         this._reducedMotionMQL      = null;
@@ -1331,7 +1336,7 @@ void main() {
             // Cancel any in-progress return animation when user tilts again
             if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer();
+            this._resetIdleTimer(tilt);
           }
         });
 
@@ -1348,7 +1353,7 @@ void main() {
             // Cancel any in-progress return animation when user moves again
             if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
-            this._resetIdleTimer();
+            this._resetIdleTimer(tilt);
           }
         });
 
@@ -1357,24 +1362,35 @@ void main() {
       }
 
       // -----------------------------------------------------------------------
-      // Idle return — reset tilt to {0,0} after IDLE_DELAY ms of no input
+      // Idle return — reset tilt to {0,0} after movement stops
       // -----------------------------------------------------------------------
 
       /**
-       * (Re)starts the idle timer on every tilt event.
-       * When the timer fires, calls renderer.returnToCenter() which drives
-       * its own rAF ease-out animation directly — no lerp fighting.
+       * Checks if tilt has changed significantly. If yes, resets the idle timer.
+       * If no significant movement for IDLE_DELAY ms, calls returnToCenter(1000).
        */
-      _resetIdleTimer() {
-        if (this._idleTimer !== null) {
-          clearTimeout(this._idleTimer);
-        }
-        this._idleTimer = setTimeout(() => {
-          this._idleTimer = null;
-          if (this._renderer && !this._motionFrozen) {
-            this._renderer.returnToCenter(2000);
+      _resetIdleTimer(tilt) {
+        const dx = Math.abs(tilt.x - this._lastTilt.x);
+        const dy = Math.abs(tilt.y - this._lastTilt.y);
+        
+        // Only reset timer if movement is significant (filters out gyro noise)
+        if (dx > this._IDLE_THRESHOLD || dy > this._IDLE_THRESHOLD) {
+          console.log('[ParallaxEffect] Significant movement detected:', dx.toFixed(3), dy.toFixed(3));
+          this._lastTilt = { x: tilt.x, y: tilt.y };
+          
+          // Clear and restart the timer
+          if (this._idleTimer !== null) {
+            clearTimeout(this._idleTimer);
           }
-        }, this._IDLE_DELAY);
+          
+          this._idleTimer = setTimeout(() => {
+            console.log('[ParallaxEffect] No movement for', this._IDLE_DELAY, 'ms — returning to center');
+            this._idleTimer = null;
+            if (this._renderer && !this._motionFrozen) {
+              this._renderer.returnToCenter(1000); // 1 second return animation
+            }
+          }, this._IDLE_DELAY);
+        }
       }
 
       // -----------------------------------------------------------------------

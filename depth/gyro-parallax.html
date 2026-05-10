@@ -1026,8 +1026,8 @@ void main() {
         this._renderer         = null;
         this._motionFrozen     = false;
 
-        // Idle return: after IDLE_DELAY ms of no tilt input, snap target back to {0,0}
-        this._IDLE_DELAY   = 2000; // ms
+        // Idle return: after IDLE_DELAY ms of no tilt input, return to {0,0} over ~2s
+        this._IDLE_DELAY   = 1000; // ms before starting the return
         this._idleTimer    = null;
 
         // Reduced-motion media query state
@@ -1263,6 +1263,8 @@ void main() {
         const controller = new OrientationController((tilt) => {
           console.log('[ParallaxEffect] Gyro tilt:', tilt.x.toFixed(3), tilt.y.toFixed(3));
           if (!this._motionFrozen) {
+            // Restore live smoothing factor when user is actively tilting
+            if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
             this._resetIdleTimer();
           }
@@ -1278,6 +1280,8 @@ void main() {
       _startMouseController() {
         const controller = new MouseController(this._canvas, (tilt) => {
           if (!this._motionFrozen) {
+            // Restore live smoothing factor when user is actively moving
+            if (this._renderer) this._renderer._smoothingFactor = this._smoothingFactor;
             this._renderer.setTargetTilt(tilt);
             this._resetIdleTimer();
           }
@@ -1303,7 +1307,11 @@ void main() {
         this._idleTimer = setTimeout(() => {
           this._idleTimer = null;
           if (this._renderer && !this._motionFrozen) {
+            // Slow down smoothing for the ~2s ease-back animation
+            this._renderer._smoothingFactor = 0.015;
             this._renderer.setTargetTilt({ x: 0, y: 0 });
+            // Bust the dirty-check sentinel so the lerp actually renders frames
+            this._renderer._lastRenderedTilt = { x: Infinity, y: Infinity };
           }
         }, this._IDLE_DELAY);
       }

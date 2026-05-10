@@ -1,31 +1,30 @@
 # Journal
 
 ## Latest Milestone
-- Implemented option-3 style split-layer pipeline in `depth/gyro-parallax copy.html`.
-- App now preprocesses `input.jpeg` + `depth.png` into two runtime textures: clean background plate and RGBA foreground cutout.
+- Reverted heavy split-layer preprocessing path in `depth/gyro-parallax copy.html` due overlap persistence and performance cost.
+- Implemented lightweight depth-guided background shrink distortion in shader and removed foreground-scale logic entirely.
 
 ## Current Behavior
 - App loads source image + depth map, initializes WebGL renderer, and drives tilt from deviceorientation.
-- Preprocess step builds layers using depth threshold/feather mask + iterative inpaint fill for occluded background regions.
-- Fragment shader composites `uBackgroundImage` + `uForegroundImage` textures directly, so near object is no longer sampled from the same base image twice.
-- Threshold, feather, and fill-radius slider changes trigger debounced layer rebuild and texture refresh in-place.
+- Rendering is single-pass again with one source texture + one depth map.
+- Shader computes near-mask from depth threshold/feather and applies controlled background UV shrink/distortion around near-depth influence before compositing.
+- Foreground scale has been removed from shader, controls, and renderer API.
+- Controls now: displacement, smoothing, overscan, background shrink, foreground threshold, foreground feather.
 - iOS permission prompt remains via PermissionManager.
-- UI sliders: displacement, smoothing, overscan, foreground scale, foreground threshold, foreground feather, background fill radius.
 
 ## Key Tunables
 - displacementScale
 - smoothingFactor
 - overscan
-- fgScale
+- bgShrink
 - fgThreshold
 - fgFeather
-- fillRadius
 
 ## Verification
 - VS Code diagnostics: no errors in `depth/gyro-parallax copy.html`.
-- Browser smoke test: page loads, images load, orientation controller starts, layer rebuild runs at init.
-- Runtime slider test: changing foreground threshold updates value and triggers layer texture rebuild.
+- Browser smoke test: page loads, images load, orientation controller starts.
+- Runtime slider test: background shrink slider updates and applies live.
 
 ## Open Notes
-- Current clean background is generated heuristically at runtime; difficult scenes may still benefit from an offline artist-made background plate.
+- This is a lower-cost heuristic intended to reduce overlap artifact without expensive preprocessing.
 - Main file parity (`depth/gyro-parallax.html`) is pending if this implementation direction is accepted.

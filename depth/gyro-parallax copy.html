@@ -24,7 +24,7 @@
       height: 100%;
     }
 
-    /* ── Controls panel ── */
+    /* Controls panel */
     #controls {
       position: fixed;
       bottom: 20px;
@@ -119,19 +119,18 @@
 <body>
   <canvas id="canvas"></canvas>
 
-  <!-- Controls panel -->
   <div id="controls">
     <h3>
       Parameters
-      <button id="controls-close" title="Hide">✕</button>
+      <button id="controls-close" title="Hide">x</button>
     </h3>
 
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Displacement Scale</span>
-        <span id="val-displacement">60</span>
+        <span id="val-displacement">50</span>
       </div>
-      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="60">
+      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="50">
     </div>
 
     <div class="ctrl-row">
@@ -152,10 +151,10 @@
 
     <div class="ctrl-row">
       <div class="ctrl-label">
-        <span>Foreground Scale</span>
-        <span id="val-fgscale">0.08</span>
+        <span>Background Shrink</span>
+        <span id="val-bgshrink">0.35</span>
       </div>
-      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.08">
+      <input type="range" id="sl-bgshrink" min="0" max="0.8" step="0.01" value="0.35">
     </div>
 
     <div class="ctrl-row">
@@ -173,14 +172,6 @@
       </div>
       <input type="range" id="sl-fgfeather" min="0.005" max="0.25" step="0.005" value="0.08">
     </div>
-
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span>Background Fill Radius</span>
-        <span id="val-fillradius">3.0</span>
-      </div>
-      <input type="range" id="sl-fillradius" min="0" max="12" step="0.5" value="3.0">
-    </div>
   </div>
 
   <button id="controls-toggle" title="Show controls">⚙</button>
@@ -197,21 +188,32 @@ void main() {
 
     const FRAGMENT_SHADER_SOURCE = `
 precision mediump float;
-uniform sampler2D uBackgroundImage;
-uniform sampler2D uForegroundImage;
+uniform sampler2D uSourceImage;
 uniform sampler2D uDepthMap;
 uniform vec2 uTilt;
 uniform float uDisplacementScale;
 uniform vec2 uResolution;
 uniform vec4 uUVTransform;
 uniform float uOverscan;
-uniform float uFgScale;
 uniform float uFgThreshold;
 uniform float uFgFeather;
+uniform float uBgShrink;
 varying vec2 vUV;
 
+float nearMaskFromDepth(float depthValue) {
+  return smoothstep(uFgThreshold - uFgFeather, uFgThreshold + uFgFeather, depthValue);
+}
+
+vec2 safeNormalize(vec2 value) {
+  float len = length(value);
+  if (len < 0.00001) {
+    return vec2(0.0, 0.0);
+  }
+  return value / len;
+}
+
 void main() {
-  vec2 scale  = uUVTransform.xy;
+  vec2 scale = uUVTransform.xy;
   vec2 offset = uUVTransform.zw;
 
   if (vUV.x < offset.x || vUV.x > offset.x + scale.x ||
@@ -223,26 +225,46 @@ void main() {
   vec2 imageUV = (vUV - offset) / scale;
   imageUV = imageUV * (1.0 - 2.0 * uOverscan) + uOverscan;
 
+  vec2 texel = 1.0 / (uResolution * scale);
+  vec2 sampleStep = texel * 2.0;
+
   float depth = texture2D(uDepthMap, imageUV).r;
+  float nearMask = nearMaskFromDepth(depth);
+
+  float mL = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV - vec2(sampleStep.x, 0.0), 0.0, 1.0)).r);
+  float mR = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV + vec2(sampleStep.x, 0.0), 0.0, 1.0)).r);
+  float mU = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV + vec2(0.0, sampleStep.y), 0.0, 1.0)).r);
+  float mD = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV - vec2(0.0, sampleStep.y), 0.0, 1.0)).r);
+
+  float nearInfluence = max(nearMask, max(max(mL, mR), max(mU, mD)));
 
   float bgDepthClamp = clamp(uFgThreshold - 0.5 * uFgFeather, 0.0, 1.0);
   float bgDepth = min(depth, bgDepthClamp);
+
   vec2 bgParallaxOffset = uTilt * (1.0 - bgDepth) * uDisplacementScale / (uResolution * scale);
-  vec2 bgUV = clamp(imageUV + bgParallaxOffset, 0.0, 1.0);
-  vec4 bgColor = texture2D(uBackgroundImage, bgUV);
-
   vec2 fgParallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
-  vec2 fgCenterOffset = (imageUV - 0.5) * depth * uFgScale;
-  vec2 fgUV = clamp(imageUV + fgParallaxOffset - fgCenterOffset, 0.0, 1.0);
-  vec4 fgColor = texture2D(uForegroundImage, fgUV);
 
-  vec3 color = mix(bgColor.rgb, fgColor.rgb, fgColor.a);
-  gl_FragColor = vec4(color, 1.0);
+  vec2 radial = safeNormalize(imageUV - vec2(0.5, 0.5));
+  vec2 gradient = vec2(mR - mL, mU - mD);
+  vec2 gradDir = safeNormalize(gradient);
+  float edgeStrength = clamp(length(gradient) * 2.0, 0.0, 1.0);
+  vec2 shrinkDir = safeNormalize(mix(radial, gradDir, edgeStrength));
+
+  vec2 bgShrinkOffset = shrinkDir * nearInfluence * uBgShrink * texel * 28.0;
+
+  vec2 bgUV = clamp(imageUV + bgParallaxOffset + bgShrinkOffset, 0.0, 1.0);
+  vec2 fgUV = clamp(imageUV + fgParallaxOffset, 0.0, 1.0);
+
+  vec3 bgColor = texture2D(uSourceImage, bgUV).rgb;
+  vec3 fgColor = texture2D(uSourceImage, fgUV).rgb;
+
+  vec3 outColor = mix(bgColor, fgColor, nearMask);
+  gl_FragColor = vec4(outColor, 1.0);
 }
 `;
 
     function computeUVTransform(imageWidth, imageHeight, canvasWidth, canvasHeight) {
-      const imageAspect  = imageWidth / imageHeight;
+      const imageAspect = imageWidth / imageHeight;
       const canvasAspect = canvasWidth / canvasHeight;
 
       if (imageAspect > canvasAspect) {
@@ -254,247 +276,24 @@ void main() {
       return { scaleX: scaleX, scaleY: 1.0, offsetX: (1.0 - scaleX) / 2.0, offsetY: 0.0 };
     }
 
-    function clamp01(value) {
-      return Math.max(0, Math.min(1, value));
-    }
-
-    function smoothstep(edge0, edge1, x) {
-      const width = edge1 - edge0;
-      if (Math.abs(width) < 1e-6) {
-        return x < edge0 ? 0 : 1;
-      }
-      const t = clamp01((x - edge0) / width);
-      return t * t * (3 - 2 * t);
-    }
-
-    function dilateMask(mask, width, height, radius) {
-      const out = new Float32Array(mask.length);
-      if (radius <= 0) {
-        out.set(mask);
-        return out;
-      }
-
-      for (let y = 0; y < height; y += 1) {
-        const y0 = Math.max(0, y - radius);
-        const y1 = Math.min(height - 1, y + radius);
-        for (let x = 0; x < width; x += 1) {
-          const x0 = Math.max(0, x - radius);
-          const x1 = Math.min(width - 1, x + radius);
-          let maxValue = 0;
-          for (let yy = y0; yy <= y1; yy += 1) {
-            for (let xx = x0; xx <= x1; xx += 1) {
-              const v = mask[yy * width + xx];
-              if (v > maxValue) maxValue = v;
-            }
-          }
-          out[y * width + x] = maxValue;
-        }
-      }
-
-      return out;
-    }
-
-    function buildSeparatedLayers(sourceImage, depthMap, options) {
-      const width = sourceImage.naturalWidth || sourceImage.width;
-      const height = sourceImage.naturalHeight || sourceImage.height;
-      if (!width || !height) {
-        throw new Error('Invalid source image dimensions');
-      }
-
-      const srcCanvas = document.createElement('canvas');
-      srcCanvas.width = width;
-      srcCanvas.height = height;
-      const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-      if (!srcCtx) throw new Error('2D context unavailable for source');
-      srcCtx.drawImage(sourceImage, 0, 0, width, height);
-      const srcData = srcCtx.getImageData(0, 0, width, height);
-      const srcPixels = srcData.data;
-
-      const depthCanvas = document.createElement('canvas');
-      depthCanvas.width = width;
-      depthCanvas.height = height;
-      const depthCtx = depthCanvas.getContext('2d', { willReadFrequently: true });
-      if (!depthCtx) throw new Error('2D context unavailable for depth');
-      depthCtx.drawImage(depthMap, 0, 0, width, height);
-      const depthPixels = depthCtx.getImageData(0, 0, width, height).data;
-
-      const threshold = clamp01((options && options.fgThreshold != null) ? options.fgThreshold : 0.62);
-      const feather = Math.max(0.001, (options && options.fgFeather != null) ? options.fgFeather : 0.08);
-      const fillRadius = Math.max(0, (options && options.fillRadius != null) ? options.fillRadius : 3.0);
-      const growRadius = Math.max(0, Math.round(fillRadius * 0.75));
-
-      const pixelCount = width * height;
-      const rawMask = new Float32Array(pixelCount);
-      const low = threshold - feather;
-      const high = threshold + feather;
-
-      for (let i = 0; i < pixelCount; i += 1) {
-        const depthValue = depthPixels[i * 4] / 255;
-        rawMask[i] = smoothstep(low, high, depthValue);
-      }
-
-      const grownMask = dilateMask(rawMask, width, height, growRadius);
-
-      const fgCanvas = document.createElement('canvas');
-      fgCanvas.width = width;
-      fgCanvas.height = height;
-      const fgCtx = fgCanvas.getContext('2d');
-      if (!fgCtx) throw new Error('2D context unavailable for foreground');
-      const fgImageData = fgCtx.createImageData(width, height);
-      const fgPixels = fgImageData.data;
-
-      let workingR = new Float32Array(pixelCount);
-      let workingG = new Float32Array(pixelCount);
-      let workingB = new Float32Array(pixelCount);
-      let confidence = new Float32Array(pixelCount);
-
-      for (let i = 0; i < pixelCount; i += 1) {
-        const si = i * 4;
-        const mask = clamp01(grownMask[i]);
-        const alpha = Math.round(clamp01(rawMask[i]) * 255);
-
-        fgPixels[si] = srcPixels[si];
-        fgPixels[si + 1] = srcPixels[si + 1];
-        fgPixels[si + 2] = srcPixels[si + 2];
-        fgPixels[si + 3] = alpha;
-
-        workingR[i] = srcPixels[si];
-        workingG[i] = srcPixels[si + 1];
-        workingB[i] = srcPixels[si + 2];
-        confidence[i] = 1 - mask;
-      }
-
-      const passes = Math.max(24, Math.round(36 + fillRadius * 10));
-      let nextR = new Float32Array(pixelCount);
-      let nextG = new Float32Array(pixelCount);
-      let nextB = new Float32Array(pixelCount);
-      let nextConfidence = new Float32Array(pixelCount);
-
-      for (let pass = 0; pass < passes; pass += 1) {
-        let progressed = false;
-
-        for (let y = 0; y < height; y += 1) {
-          const y0 = Math.max(0, y - 1);
-          const y1 = Math.min(height - 1, y + 1);
-          for (let x = 0; x < width; x += 1) {
-            const x0 = Math.max(0, x - 1);
-            const x1 = Math.min(width - 1, x + 1);
-            const i = y * width + x;
-            const conf = confidence[i];
-
-            if (conf > 0.995) {
-              nextR[i] = workingR[i];
-              nextG[i] = workingG[i];
-              nextB[i] = workingB[i];
-              nextConfidence[i] = 1;
-              continue;
-            }
-
-            let sumR = 0;
-            let sumG = 0;
-            let sumB = 0;
-            let sumW = 0;
-
-            for (let yy = y0; yy <= y1; yy += 1) {
-              for (let xx = x0; xx <= x1; xx += 1) {
-                if (xx === x && yy === y) continue;
-                const ni = yy * width + xx;
-                const w = confidence[ni];
-                if (w <= 0.001) continue;
-                sumR += workingR[ni] * w;
-                sumG += workingG[ni] * w;
-                sumB += workingB[ni] * w;
-                sumW += w;
-              }
-            }
-
-            if (sumW > 0.001) {
-              const avgR = sumR / sumW;
-              const avgG = sumG / sumW;
-              const avgB = sumB / sumW;
-              const blend = 1 - conf;
-              nextR[i] = workingR[i] * (1 - blend) + avgR * blend;
-              nextG[i] = workingG[i] * (1 - blend) + avgG * blend;
-              nextB[i] = workingB[i] * (1 - blend) + avgB * blend;
-
-              const gain = 0.22 + 0.25 * clamp01(sumW / 6);
-              nextConfidence[i] = Math.min(1, conf + gain * (1 - conf));
-              if (nextConfidence[i] > conf + 0.0005) progressed = true;
-            } else {
-              nextR[i] = workingR[i];
-              nextG[i] = workingG[i];
-              nextB[i] = workingB[i];
-              nextConfidence[i] = conf;
-            }
-          }
-        }
-
-        const tmpR = workingR;
-        const tmpG = workingG;
-        const tmpB = workingB;
-        const tmpC = confidence;
-        workingR = nextR;
-        workingG = nextG;
-        workingB = nextB;
-        confidence = nextConfidence;
-        nextR = tmpR;
-        nextG = tmpG;
-        nextB = tmpB;
-        nextConfidence = tmpC;
-
-        if (!progressed) break;
-      }
-
-      const bgCanvas = document.createElement('canvas');
-      bgCanvas.width = width;
-      bgCanvas.height = height;
-      const bgCtx = bgCanvas.getContext('2d');
-      if (!bgCtx) throw new Error('2D context unavailable for background');
-      const bgImageData = bgCtx.createImageData(width, height);
-      const bgPixels = bgImageData.data;
-
-      for (let i = 0; i < pixelCount; i += 1) {
-        const si = i * 4;
-        const removeAmount = clamp01(grownMask[i]);
-        const keepAmount = 1 - removeAmount;
-
-        const r = srcPixels[si] * keepAmount + workingR[i] * removeAmount;
-        const g = srcPixels[si + 1] * keepAmount + workingG[i] * removeAmount;
-        const b = srcPixels[si + 2] * keepAmount + workingB[i] * removeAmount;
-
-        bgPixels[si] = Math.round(r);
-        bgPixels[si + 1] = Math.round(g);
-        bgPixels[si + 2] = Math.round(b);
-        bgPixels[si + 3] = 255;
-      }
-
-      fgCtx.putImageData(fgImageData, 0, 0);
-      bgCtx.putImageData(bgImageData, 0, 0);
-
-      return {
-        foregroundImage: fgCanvas,
-        backgroundImage: bgCanvas,
-      };
-    }
-
     class Renderer {
-      constructor(canvas, backgroundImage, foregroundImage, depthMap, options) {
+      constructor(canvas, sourceImage, depthMap, options) {
         this._canvas = canvas;
-        this._backgroundImage = backgroundImage;
-        this._foregroundImage = foregroundImage;
+        this._sourceImage = sourceImage;
         this._depthMap = depthMap;
+
         this._displacementScale = (options && options.displacementScale != null)
-          ? options.displacementScale : 30;
+          ? options.displacementScale : 50;
         this._smoothingFactor = (options && options.smoothingFactor != null)
-          ? options.smoothingFactor : 0.1;
+          ? options.smoothingFactor : 0.06;
         this._overscan = (options && options.overscan != null)
           ? options.overscan : 0.02;
-        this._fgScale = (options && options.fgScale != null)
-          ? options.fgScale : 0.08;
         this._fgThreshold = (options && options.fgThreshold != null)
           ? options.fgThreshold : 0.62;
         this._fgFeather = (options && options.fgFeather != null)
           ? options.fgFeather : 0.08;
+        this._bgShrink = (options && options.bgShrink != null)
+          ? options.bgShrink : 0.35;
 
         this._currentTilt = { x: 0, y: 0 };
         this._targetTilt = { x: 0, y: 0 };
@@ -506,8 +305,7 @@ void main() {
         this._gl = null;
         this._program = null;
         this._quadBuffer = null;
-        this._backgroundTexture = null;
-        this._foregroundTexture = null;
+        this._sourceTexture = null;
         this._depthTexture = null;
         this._uniforms = {};
 
@@ -548,6 +346,7 @@ void main() {
            1, -1,
            1,  1,
         ]);
+
         this._quadBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
@@ -556,24 +355,24 @@ void main() {
         gl.enableVertexAttribArray(aPosition);
         gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
+        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
+        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
+
         this._uniforms = {
-          uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
-          uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
+          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution: gl.getUniformLocation(program, 'uResolution'),
           uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan: gl.getUniformLocation(program, 'uOverscan'),
-          uFgScale: gl.getUniformLocation(program, 'uFgScale'),
           uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
           uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
+          uBgShrink: gl.getUniformLocation(program, 'uBgShrink'),
         };
 
-        this._refreshTextures();
-        gl.uniform1i(this._uniforms.uBackgroundImage, 0);
-        gl.uniform1i(this._uniforms.uForegroundImage, 1);
-        gl.uniform1i(this._uniforms.uDepthMap, 2);
+        gl.uniform1i(this._uniforms.uSourceImage, 0);
+        gl.uniform1i(this._uniforms.uDepthMap, 1);
 
         this._rafId = requestAnimationFrame(this._tick);
         return true;
@@ -604,19 +403,6 @@ void main() {
         return texture;
       }
 
-      _refreshTextures() {
-        const gl = this._gl;
-        if (!gl) return;
-
-        if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
-        if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
-        if (this._depthTexture) gl.deleteTexture(this._depthTexture);
-
-        this._backgroundTexture = this._uploadTexture(gl, this._backgroundImage, 0);
-        this._foregroundTexture = this._uploadTexture(gl, this._foregroundImage, 1);
-        this._depthTexture = this._uploadTexture(gl, this._depthMap, 2);
-      }
-
       _tick() {
         if (this._paused) return;
 
@@ -628,10 +414,10 @@ void main() {
         cur.y += (tgt.y - cur.y) * alpha;
 
         const last = this._lastRenderedTilt;
-        const STEP_TOL = 0.0001;
-        const TARGET_TOL = 0.0008;
-        const stepIsTiny = Math.abs(cur.x - last.x) < STEP_TOL && Math.abs(cur.y - last.y) < STEP_TOL;
-        const nearTarget = Math.abs(cur.x - tgt.x) < TARGET_TOL && Math.abs(cur.y - tgt.y) < TARGET_TOL;
+        const stepTol = 0.0001;
+        const targetTol = 0.0008;
+        const stepIsTiny = Math.abs(cur.x - last.x) < stepTol && Math.abs(cur.y - last.y) < stepTol;
+        const nearTarget = Math.abs(cur.x - tgt.x) < targetTol && Math.abs(cur.y - tgt.y) < targetTol;
 
         if (!this._needsRedraw && stepIsTiny && nearTarget) {
           cur.x = tgt.x;
@@ -652,16 +438,17 @@ void main() {
         gl.uniform2f(u.uResolution, canvas.width, canvas.height);
 
         const uv = computeUVTransform(
-          this._backgroundImage.naturalWidth || this._backgroundImage.width,
-          this._backgroundImage.naturalHeight || this._backgroundImage.height,
+          this._sourceImage.naturalWidth || this._sourceImage.width,
+          this._sourceImage.naturalHeight || this._sourceImage.height,
           canvas.width,
           canvas.height
         );
+
         gl.uniform4f(u.uUVTransform, uv.scaleX, uv.scaleY, uv.offsetX, uv.offsetY);
         gl.uniform1f(u.uOverscan, this._overscan);
-        gl.uniform1f(u.uFgScale, this._fgScale);
         gl.uniform1f(u.uFgThreshold, this._fgThreshold);
         gl.uniform1f(u.uFgFeather, this._fgFeather);
+        gl.uniform1f(u.uBgShrink, this._bgShrink);
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -670,40 +457,24 @@ void main() {
         this._rafId = requestAnimationFrame(this._tick);
       }
 
-      setLayerTextures(backgroundImage, foregroundImage) {
-        if (!backgroundImage || !foregroundImage) return;
-        this._backgroundImage = backgroundImage;
-        this._foregroundImage = foregroundImage;
-
-        if (!this._gl) return;
-        this._refreshTextures();
-        this._needsRedraw = true;
-      }
-
       setTargetTilt(tilt) {
         this._targetTilt = { x: tilt.x, y: tilt.y };
       }
 
-      setDisplacementScale(scale) {
-        if (!Number.isFinite(scale)) return;
-        this._displacementScale = scale;
+      setDisplacementScale(value) {
+        if (!Number.isFinite(value)) return;
+        this._displacementScale = value;
         this._needsRedraw = true;
       }
 
-      setSmoothingFactor(factor) {
-        if (!Number.isFinite(factor) || factor <= 0) return;
-        this._smoothingFactor = factor;
+      setSmoothingFactor(value) {
+        if (!Number.isFinite(value) || value <= 0) return;
+        this._smoothingFactor = value;
       }
 
       setOverscan(value) {
         if (!Number.isFinite(value) || value < 0) return;
         this._overscan = value;
-        this._needsRedraw = true;
-      }
-
-      setForegroundScale(value) {
-        if (!Number.isFinite(value) || value < 0) return;
-        this._fgScale = value;
         this._needsRedraw = true;
       }
 
@@ -719,15 +490,16 @@ void main() {
         this._needsRedraw = true;
       }
 
-      requestRedraw() {
+      setBackgroundShrink(value) {
+        if (!Number.isFinite(value) || value < 0) return;
+        this._bgShrink = value;
         this._needsRedraw = true;
       }
 
       resize() {
-        if (this._gl) {
-          this._gl.viewport(0, 0, this._canvas.width, this._canvas.height);
-          this._needsRedraw = true;
-        }
+        if (!this._gl) return;
+        this._gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+        this._needsRedraw = true;
       }
 
       pause() {
@@ -770,24 +542,26 @@ void main() {
         gl.enableVertexAttribArray(aPosition);
         gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
+        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
+        if (this._depthTexture) gl.deleteTexture(this._depthTexture);
+        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
+        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
+
         this._uniforms = {
-          uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
-          uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
+          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution: gl.getUniformLocation(program, 'uResolution'),
           uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan: gl.getUniformLocation(program, 'uOverscan'),
-          uFgScale: gl.getUniformLocation(program, 'uFgScale'),
           uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
           uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
+          uBgShrink: gl.getUniformLocation(program, 'uBgShrink'),
         };
 
-        this._refreshTextures();
-        gl.uniform1i(this._uniforms.uBackgroundImage, 0);
-        gl.uniform1i(this._uniforms.uForegroundImage, 1);
-        gl.uniform1i(this._uniforms.uDepthMap, 2);
+        gl.uniform1i(this._uniforms.uSourceImage, 0);
+        gl.uniform1i(this._uniforms.uDepthMap, 1);
 
         this._needsRedraw = true;
         this._rafId = requestAnimationFrame(this._tick);
@@ -799,8 +573,7 @@ void main() {
         if (!gl) return;
         if (this._program) gl.deleteProgram(this._program);
         if (this._quadBuffer) gl.deleteBuffer(this._quadBuffer);
-        if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
-        if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
+        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
         if (this._depthTexture) gl.deleteTexture(this._depthTexture);
         this._gl = null;
       }
@@ -828,19 +601,19 @@ void main() {
         window.removeEventListener('deviceorientation', this._onDeviceOrientation);
       }
 
-      _onDeviceOrientation(e) {
-        if (e.beta === null || e.gamma === null) return;
+      _onDeviceOrientation(event) {
+        if (event.beta === null || event.gamma === null) return;
 
         if (this._baseBeta === null && this._baseGamma === null) {
-          this._baseBeta = e.beta;
-          this._baseGamma = e.gamma;
+          this._baseBeta = event.beta;
+          this._baseGamma = event.gamma;
           this._onTilt({ x: 0, y: 0 });
           return;
         }
 
         this._onTilt({
-          x: normalizeAngle(e.gamma, this._baseGamma),
-          y: normalizeAngle(e.beta, this._baseBeta),
+          x: normalizeAngle(event.gamma, this._baseGamma),
+          y: normalizeAngle(event.beta, this._baseBeta),
         });
       }
     }
@@ -859,12 +632,14 @@ void main() {
         ) {
           return true;
         }
+
         if (
           typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function'
         ) {
           return true;
         }
+
         return false;
       }
 
@@ -922,20 +697,19 @@ void main() {
           } else {
             this._onDenied();
           }
-        }).catch((err) => {
-          console.warn('PermissionManager: requestPermission() threw:', err);
+        }).catch((error) => {
+          console.warn('PermissionManager: requestPermission() threw:', error);
           this._removeOverlay();
           this._onDenied();
         });
       }
 
       _removeOverlay() {
-        if (this._overlay) {
-          if (this._overlay.parentNode) {
-            this._overlay.parentNode.removeChild(this._overlay);
-          }
-          this._overlay = null;
+        if (!this._overlay) return;
+        if (this._overlay.parentNode) {
+          this._overlay.parentNode.removeChild(this._overlay);
         }
+        this._overlay = null;
       }
     }
 
@@ -944,25 +718,19 @@ void main() {
         this._canvas = canvas;
         this._sourceImageUrl = options.sourceImageUrl;
         this._depthMapUrl = options.depthMapUrl;
+
         this._displacementScale = (options.displacementScale != null)
-          ? options.displacementScale : 30;
+          ? options.displacementScale : 50;
         this._smoothingFactor = (options.smoothingFactor != null)
-          ? options.smoothingFactor : 0.1;
+          ? options.smoothingFactor : 0.06;
         this._overscan = (options.overscan != null)
           ? options.overscan : 0.02;
-        this._fgScale = (options.fgScale != null)
-          ? options.fgScale : 0.08;
         this._fgThreshold = (options.fgThreshold != null)
           ? options.fgThreshold : 0.62;
         this._fgFeather = (options.fgFeather != null)
           ? options.fgFeather : 0.08;
-        this._fillRadius = (options.fillRadius != null)
-          ? options.fillRadius : 3.0;
-
-        this._sourceImage = null;
-        this._depthMap = null;
-        this._backgroundLayerImage = null;
-        this._foregroundLayerImage = null;
+        this._bgShrink = (options.bgShrink != null)
+          ? options.bgShrink : 0.35;
 
         this._activeController = null;
         this._renderer = null;
@@ -970,18 +738,11 @@ void main() {
         this._resizeListener = null;
         this._onContextLost = null;
         this._onContextRestored = null;
-        this._rebuildTimerId = null;
         this._listeners = [];
       }
 
       addEventListener(type, listener) {
         this._listeners.push({ type, listener });
-      }
-
-      removeEventListener(type, listener) {
-        this._listeners = this._listeners.filter(
-          (entry) => !(entry.type === type && entry.listener === listener)
-        );
       }
 
       dispatchEvent(event) {
@@ -998,53 +759,13 @@ void main() {
             this._loadImage(this._sourceImageUrl, 'source image'),
             this._loadImage(this._depthMapUrl, 'depth map'),
           ]);
-        } catch (err) {
+        } catch (error) {
           return;
         }
 
         this._sourceImage = sourceImage;
         this._depthMap = depthMap;
-        this._rebuildLayers();
         this._setup();
-      }
-
-      _rebuildLayers() {
-        if (!this._sourceImage || !this._depthMap) return;
-
-        try {
-          const layers = buildSeparatedLayers(this._sourceImage, this._depthMap, {
-            fgThreshold: this._fgThreshold,
-            fgFeather: this._fgFeather,
-            fillRadius: this._fillRadius,
-          });
-
-          this._backgroundLayerImage = layers.backgroundImage;
-          this._foregroundLayerImage = layers.foregroundImage;
-
-          if (this._renderer) {
-            this._renderer.setForegroundThreshold(this._fgThreshold);
-            this._renderer.setForegroundFeather(this._fgFeather);
-            this._renderer.setLayerTextures(this._backgroundLayerImage, this._foregroundLayerImage);
-          }
-
-          console.log('[ParallaxEffect] Layer textures rebuilt');
-        } catch (err) {
-          console.error('[ParallaxEffect] Failed to rebuild layers:', err);
-          this.dispatchEvent(new CustomEvent('error', {
-            detail: { message: 'Failed to build clean foreground/background layers' },
-          }));
-        }
-      }
-
-      scheduleLayerRebuild() {
-        if (this._rebuildTimerId !== null) {
-          clearTimeout(this._rebuildTimerId);
-        }
-
-        this._rebuildTimerId = setTimeout(() => {
-          this._rebuildTimerId = null;
-          this._rebuildLayers();
-        }, 80);
       }
 
       _loadImage(url, label) {
@@ -1070,20 +791,14 @@ void main() {
           this._canvas.height = initH;
         }
 
-        this._renderer = new Renderer(
-          this._canvas,
-          this._backgroundLayerImage || this._sourceImage,
-          this._foregroundLayerImage || this._sourceImage,
-          this._depthMap,
-          {
+        this._renderer = new Renderer(this._canvas, this._sourceImage, this._depthMap, {
           displacementScale: this._displacementScale,
           smoothingFactor: this._smoothingFactor,
           overscan: this._overscan,
-          fgScale: this._fgScale,
           fgThreshold: this._fgThreshold,
           fgFeather: this._fgFeather,
-          }
-        );
+          bgShrink: this._bgShrink,
+        });
 
         const webglOk = this._renderer.init();
         if (!webglOk) {
@@ -1093,13 +808,14 @@ void main() {
           return;
         }
 
-        this._onContextLost = (e) => {
-          e.preventDefault();
+        this._onContextLost = (event) => {
+          event.preventDefault();
           this._renderer.pause();
         };
         this._onContextRestored = () => {
           this._renderer.resume();
         };
+
         this._canvas.addEventListener('webglcontextlost', this._onContextLost);
         this._canvas.addEventListener('webglcontextrestored', this._onContextRestored);
 
@@ -1171,6 +887,7 @@ void main() {
           this._canvas.removeEventListener('webglcontextlost', this._onContextLost);
           this._onContextLost = null;
         }
+
         if (this._onContextRestored) {
           this._canvas.removeEventListener('webglcontextrestored', this._onContextRestored);
           this._onContextRestored = null;
@@ -1179,11 +896,6 @@ void main() {
         if (this._renderer) {
           this._renderer.destroy();
           this._renderer = null;
-        }
-
-        if (this._rebuildTimerId !== null) {
-          clearTimeout(this._rebuildTimerId);
-          this._rebuildTimerId = null;
         }
       }
     }
@@ -1211,10 +923,10 @@ void main() {
       debugOverlay.textContent = 'Initializing...';
       document.body.appendChild(debugOverlay);
 
-      function log(msg) {
+      function log(message) {
         const timestamp = new Date().toLocaleTimeString();
         const history = debugOverlay.textContent.split('\n').slice(0, 8).join('\n');
-        debugOverlay.textContent = `[${timestamp}] ${msg}\n${history}`;
+        debugOverlay.textContent = `[${timestamp}] ${message}\n${history}`;
       }
 
       const loadingText = document.createElement('div');
@@ -1237,14 +949,15 @@ void main() {
         depthMapUrl: 'depth.png',
         displacementScale: 50,
         smoothingFactor: 0.06,
+        overscan: 0.02,
         fgThreshold: 0.62,
         fgFeather: 0.08,
-        fillRadius: 3.0,
+        bgShrink: 0.35,
       });
 
-      effect.addEventListener('error', (e) => {
-        log('ERROR: ' + e.detail.message);
-        loadingText.textContent = 'Error: ' + e.detail.message;
+      effect.addEventListener('error', (event) => {
+        log('ERROR: ' + event.detail.message);
+        loadingText.textContent = 'Error: ' + event.detail.message;
       });
 
       const originalSetup = effect._setup.bind(effect);
@@ -1293,26 +1006,19 @@ void main() {
         if (effect._renderer) effect._renderer.setOverscan(value);
       });
 
-      bindSlider('sl-fgscale', 'val-fgscale', 3, (value) => {
-        effect._fgScale = value;
-        if (effect._renderer) effect._renderer.setForegroundScale(value);
+      bindSlider('sl-bgshrink', 'val-bgshrink', 2, (value) => {
+        effect._bgShrink = value;
+        if (effect._renderer) effect._renderer.setBackgroundShrink(value);
       });
 
       bindSlider('sl-fgthresh', 'val-fgthresh', 2, (value) => {
         effect._fgThreshold = value;
         if (effect._renderer) effect._renderer.setForegroundThreshold(value);
-        effect.scheduleLayerRebuild();
       });
 
       bindSlider('sl-fgfeather', 'val-fgfeather', 3, (value) => {
         effect._fgFeather = value;
         if (effect._renderer) effect._renderer.setForegroundFeather(value);
-        effect.scheduleLayerRebuild();
-      });
-
-      bindSlider('sl-fillradius', 'val-fillradius', 1, (value) => {
-        effect._fillRadius = value;
-        effect.scheduleLayerRebuild();
       });
 
       const panel = document.getElementById('controls');

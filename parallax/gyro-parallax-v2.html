@@ -129,9 +129,9 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Displacement Scale</span>
-        <span id="val-displacement">50</span>
+        <span id="val-displacement">58</span>
       </div>
-      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="50">
+      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="58">
     </div>
 
     <div class="ctrl-row">
@@ -145,17 +145,17 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Overscan</span>
-        <span id="val-overscan">0.02</span>
+        <span id="val-overscan">0.03</span>
       </div>
-      <input type="range" id="sl-overscan" min="0" max="0.25" step="0.005" value="0.02">
+      <input type="range" id="sl-overscan" min="0" max="0.25" step="0.005" value="0.03">
     </div>
 
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Foreground Scale</span>
-        <span id="val-fgscale">0.08</span>
+        <span id="val-fgscale">0.06</span>
       </div>
-      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.08">
+      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.06">
     </div>
   </div>
 
@@ -201,15 +201,18 @@ void main() {
   float depthCentered = depth - 0.5;
   vec2 baseOffset = uTilt * uDisplacementScale / (uResolution * scale);
 
-  // Keep both layers locked to one depth warp so they do not visually split.
-  vec2 sharedDepthOffset = baseOffset * depthCentered * 0.8;
+  // iPhone-like feel: far background drifts more while foreground stays steadier.
+  float farMask = 1.0 - smoothstep(0.3, 0.9, depth);
+  vec2 depthWarp = baseOffset * depthCentered * 0.75;
+  vec2 bgDrift = baseOffset * (0.95 + farMask * 0.55);
+  vec2 fgDrift = baseOffset * (0.62 + depth * 0.12);
 
-  // Foreground gets a small depth-driven lead and slight perspective scale.
-  vec2 fgLead = baseOffset * (uFgScale * (0.7 + depth * 0.6));
-  vec2 fgScaleOffset = (imageUV - 0.5) * depth * (uFgScale * 0.45);
+  // Keep some perspective in front objects so they still read as near.
+  vec2 fgLead = baseOffset * (uFgScale * (0.28 + depth * 0.38));
+  vec2 fgScaleOffset = (imageUV - 0.5) * depth * (uFgScale * 0.62);
 
-  vec2 bgOffset = baseOffset + sharedDepthOffset;
-  vec2 fgOffset = baseOffset + sharedDepthOffset + fgLead - fgScaleOffset;
+  vec2 bgOffset = bgDrift + depthWarp;
+  vec2 fgOffset = fgDrift + depthWarp * 0.4 + fgLead - fgScaleOffset;
 
   vec2 bgUV = clamp(imageUV + bgOffset, 0.0, 1.0);
   vec2 fgUV = clamp(imageUV + fgOffset, 0.0, 1.0);
@@ -927,8 +930,10 @@ void main() {
         backgroundImageUrl: 'background.png',
         foregroundImageUrl: 'foreground.png',
         depthMapUrl: 'depth.png',
-        displacementScale: 50,
+        displacementScale: 58,
         smoothingFactor: 0.06,
+        overscan: 0.03,
+        fgScale: 0.06,
       });
 
       effect.addEventListener('error', (e) => {

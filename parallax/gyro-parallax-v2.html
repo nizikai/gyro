@@ -763,7 +763,7 @@ void main() {
         validateUrls(options);
         this._backgroundImageUrl = options.backgroundImageUrl;
         this._foregroundImageUrl = options.foregroundImageUrl;
-        this._foregroundMaskUrl = options.foregroundMaskUrl || 'foreground-mask.png';
+        this._foregroundMaskUrl = options.foregroundMaskUrl || 'mask.png';
         this._depthMapUrl = options.depthMapUrl;
 
         this._displacementScale = (options.displacementScale != null)
@@ -1024,7 +1024,7 @@ void main() {
       const effect = new ParallaxEffect(canvas, {
         backgroundImageUrl: 'background.png',
         foregroundImageUrl: 'foreground.png',
-        foregroundMaskUrl: 'foreground-mask.png',
+        foregroundMaskUrl: 'mask.png',
         depthMapUrl: 'depth.png',
         displacementScale: 62,
         smoothingFactor: 0.06,

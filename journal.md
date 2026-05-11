@@ -12,7 +12,7 @@
 - `overscan`: 0.04
 - `fgScale`: 0.05
 - `fgZoom`: 0.015
-- `foregroundMaskUrl`: `foreground-mask.png` (optional; falls back to PNG alpha)
+- `foregroundMaskUrl`: `mask.png` (optional; falls back to PNG alpha)
 
 ## Known Risks
 - Visual quality still depends on alignment between foreground cutout, depth map, and optional mask.

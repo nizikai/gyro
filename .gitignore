@@ -3,3 +3,6 @@
 ./journal.md
 # Ignore all model checkpoints
 models/checkpoints/big-lama/models/*
+# Ignore git submodules
+models/ml-depth-pro
+models/assets/lama

@@ -129,9 +129,9 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Displacement Scale</span>
-        <span id="val-displacement">58</span>
+        <span id="val-displacement">62</span>
       </div>
-      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="58">
+      <input type="range" id="sl-displacement" min="5" max="150" step="1" value="62">
     </div>
 
     <div class="ctrl-row">
@@ -145,17 +145,25 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Overscan</span>
-        <span id="val-overscan">0.03</span>
+        <span id="val-overscan">0.04</span>
       </div>
-      <input type="range" id="sl-overscan" min="0" max="0.25" step="0.005" value="0.03">
+      <input type="range" id="sl-overscan" min="0" max="0.25" step="0.005" value="0.04">
     </div>
 
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Foreground Scale</span>
-        <span id="val-fgscale">0.06</span>
+        <span id="val-fgscale">0.05</span>
       </div>
-      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.06">
+      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.05">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Foreground Zoom</span>
+        <span id="val-fgzoom">0.015</span>
+      </div>
+      <input type="range" id="sl-fgzoom" min="0" max="0.04" step="0.001" value="0.015">
     </div>
   </div>
 
@@ -175,6 +183,7 @@ void main() {
 precision mediump float;
 uniform sampler2D uBackgroundImage;
 uniform sampler2D uForegroundImage;
+uniform sampler2D uForegroundMask;
 uniform sampler2D uDepthMap;
 uniform vec2 uTilt;
 uniform float uDisplacementScale;
@@ -182,6 +191,8 @@ uniform vec2 uResolution;
 uniform vec4 uUVTransform;
 uniform float uOverscan;
 uniform float uFgScale;
+uniform float uFgZoom;
+uniform float uUseForegroundMask;
 varying vec2 vUV;
 
 void main() {
@@ -201,27 +212,36 @@ void main() {
   float depthCentered = depth - 0.5;
   vec2 baseOffset = uTilt * uDisplacementScale / (uResolution * scale);
 
-  // iPhone-like feel: far background drifts more while foreground stays steadier.
+  // iPhone-like feel: background reacts more strongly than foreground.
   float farMask = 1.0 - smoothstep(0.3, 0.9, depth);
-  vec2 depthWarp = baseOffset * depthCentered * 0.75;
-  vec2 bgDrift = baseOffset * (0.95 + farMask * 0.55);
-  vec2 fgDrift = baseOffset * (0.62 + depth * 0.12);
+  float tiltMag = clamp(length(uTilt), 0.0, 1.0);
+  vec2 depthWarp = baseOffset * depthCentered * 0.72;
+  vec2 bgDrift = baseOffset * (1.2 + farMask * 0.95);
+  vec2 fgDrift = baseOffset * (0.5 + depth * 0.1);
+  vec2 bgPerspective = (imageUV - 0.5) * (0.012 + farMask * 0.02) * (tiltMag * 1.5);
 
-  // Keep some perspective in front objects so they still read as near.
-  vec2 fgLead = baseOffset * (uFgScale * (0.28 + depth * 0.38));
-  vec2 fgScaleOffset = (imageUV - 0.5) * depth * (uFgScale * 0.62);
+  // Keep foreground perspective gentle to avoid shape wobble at edges.
+  vec2 fgLead = baseOffset * (uFgScale * (0.2 + depth * 0.3));
+  vec2 fgScaleOffset = (imageUV - 0.5) * depth * (uFgScale * 0.4);
 
-  vec2 bgOffset = bgDrift + depthWarp;
+  vec2 bgOffset = bgDrift + depthWarp + bgPerspective;
   vec2 fgOffset = fgDrift + depthWarp * 0.4 + fgLead - fgScaleOffset;
 
   vec2 bgUV = clamp(imageUV + bgOffset, 0.0, 1.0);
   vec2 fgUV = clamp(imageUV + fgOffset, 0.0, 1.0);
+  vec2 fgZoomedUV = clamp((fgUV - 0.5) * (1.0 - uFgZoom) + 0.5, 0.0, 1.0);
 
   vec4 backgroundColor = texture2D(uBackgroundImage, bgUV);
-  vec4 foregroundColor = texture2D(uForegroundImage, fgUV);
+  vec4 foregroundColor = texture2D(uForegroundImage, fgZoomedUV);
+  float maskAlpha = texture2D(uForegroundMask, fgZoomedUV).r;
+  float foregroundMatte = mix(foregroundColor.a, smoothstep(0.52, 0.96, maskAlpha), uUseForegroundMask);
+  vec3 foregroundRgb = foregroundColor.rgb;
+  if (foregroundColor.a > 0.001) {
+    foregroundRgb = clamp(foregroundColor.rgb / foregroundColor.a, 0.0, 1.0);
+  }
   float fgDepthMask = smoothstep(0.25, 0.85, depth);
-  float fgAlpha = foregroundColor.a * mix(0.88, 1.0, fgDepthMask);
-  vec3 color = mix(backgroundColor.rgb, foregroundColor.rgb, fgAlpha);
+  float fgAlpha = foregroundMatte * mix(0.88, 1.0, fgDepthMask);
+  vec3 color = mix(backgroundColor.rgb, foregroundRgb, fgAlpha);
 
   gl_FragColor = vec4(color, 1.0);
 }
@@ -241,10 +261,11 @@ void main() {
     }
 
     class Renderer {
-      constructor(canvas, backgroundImage, foregroundImage, depthMap, options) {
+      constructor(canvas, backgroundImage, foregroundImage, foregroundMask, depthMap, options) {
         this._canvas = canvas;
         this._backgroundImage = backgroundImage;
         this._foregroundImage = foregroundImage;
+        this._foregroundMask = foregroundMask || null;
         this._depthMap = depthMap;
         this._displacementScale = (options && options.displacementScale != null)
           ? options.displacementScale : 30;
@@ -254,6 +275,8 @@ void main() {
           ? options.overscan : 0.02;
         this._fgScale = (options && options.fgScale != null)
           ? options.fgScale : 0.08;
+        this._fgZoom = (options && options.fgZoom != null)
+          ? options.fgZoom : 0.015;
 
         this._currentTilt = { x: 0, y: 0 };
         this._targetTilt = { x: 0, y: 0 };
@@ -267,6 +290,7 @@ void main() {
         this._quadBuffer = null;
         this._backgroundTexture = null;
         this._foregroundTexture = null;
+        this._foregroundMaskTexture = null;
         this._depthTexture = null;
         this._uniforms = {};
 
@@ -318,10 +342,14 @@ void main() {
         this._backgroundTexture = this._uploadTexture(gl, this._backgroundImage, 0);
         this._foregroundTexture = this._uploadTexture(gl, this._foregroundImage, 1);
         this._depthTexture = this._uploadTexture(gl, this._depthMap, 2);
+        this._foregroundMaskTexture = this._foregroundMask
+          ? this._uploadTexture(gl, this._foregroundMask, 3)
+          : this._uploadSolidTexture(gl, 3, 255, 255, 255, 255);
 
         this._uniforms = {
           uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
           uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
+          uForegroundMask: gl.getUniformLocation(program, 'uForegroundMask'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
@@ -329,11 +357,15 @@ void main() {
           uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan: gl.getUniformLocation(program, 'uOverscan'),
           uFgScale: gl.getUniformLocation(program, 'uFgScale'),
+          uFgZoom: gl.getUniformLocation(program, 'uFgZoom'),
+          uUseForegroundMask: gl.getUniformLocation(program, 'uUseForegroundMask'),
         };
 
         gl.uniform1i(this._uniforms.uBackgroundImage, 0);
         gl.uniform1i(this._uniforms.uForegroundImage, 1);
         gl.uniform1i(this._uniforms.uDepthMap, 2);
+        gl.uniform1i(this._uniforms.uForegroundMask, 3);
+        gl.uniform1f(this._uniforms.uUseForegroundMask, this._foregroundMask ? 1.0 : 0.0);
 
         this._rafId = requestAnimationFrame(this._tick);
         return true;
@@ -361,6 +393,28 @@ void main() {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        return texture;
+      }
+
+      _uploadSolidTexture(gl, unit, r, g, b, a) {
+        const texture = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          1,
+          1,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          new Uint8Array([r, g, b, a])
+        );
         return texture;
       }
 
@@ -407,6 +461,7 @@ void main() {
         gl.uniform4f(u.uUVTransform, uv.scaleX, uv.scaleY, uv.offsetX, uv.offsetY);
         gl.uniform1f(u.uOverscan, this._overscan);
         gl.uniform1f(u.uFgScale, this._fgScale);
+        gl.uniform1f(u.uFgZoom, this._fgZoom);
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -439,6 +494,12 @@ void main() {
       setForegroundScale(value) {
         if (!Number.isFinite(value)) return;
         this._fgScale = Math.max(0, Math.min(0.3, value));
+        this._needsRedraw = true;
+      }
+
+      setForegroundZoom(value) {
+        if (!Number.isFinite(value)) return;
+        this._fgZoom = Math.max(0, Math.min(0.04, value));
         this._needsRedraw = true;
       }
 
@@ -495,14 +556,19 @@ void main() {
 
         if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
         if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
+        if (this._foregroundMaskTexture) gl.deleteTexture(this._foregroundMaskTexture);
         if (this._depthTexture) gl.deleteTexture(this._depthTexture);
         this._backgroundTexture = this._uploadTexture(gl, this._backgroundImage, 0);
         this._foregroundTexture = this._uploadTexture(gl, this._foregroundImage, 1);
         this._depthTexture = this._uploadTexture(gl, this._depthMap, 2);
+        this._foregroundMaskTexture = this._foregroundMask
+          ? this._uploadTexture(gl, this._foregroundMask, 3)
+          : this._uploadSolidTexture(gl, 3, 255, 255, 255, 255);
 
         this._uniforms = {
           uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
           uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
+          uForegroundMask: gl.getUniformLocation(program, 'uForegroundMask'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
@@ -510,11 +576,15 @@ void main() {
           uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan: gl.getUniformLocation(program, 'uOverscan'),
           uFgScale: gl.getUniformLocation(program, 'uFgScale'),
+          uFgZoom: gl.getUniformLocation(program, 'uFgZoom'),
+          uUseForegroundMask: gl.getUniformLocation(program, 'uUseForegroundMask'),
         };
 
         gl.uniform1i(this._uniforms.uBackgroundImage, 0);
         gl.uniform1i(this._uniforms.uForegroundImage, 1);
         gl.uniform1i(this._uniforms.uDepthMap, 2);
+        gl.uniform1i(this._uniforms.uForegroundMask, 3);
+        gl.uniform1f(this._uniforms.uUseForegroundMask, this._foregroundMask ? 1.0 : 0.0);
 
         this._needsRedraw = true;
         this._rafId = requestAnimationFrame(this._tick);
@@ -528,6 +598,7 @@ void main() {
         if (this._quadBuffer) gl.deleteBuffer(this._quadBuffer);
         if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
         if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
+        if (this._foregroundMaskTexture) gl.deleteTexture(this._foregroundMaskTexture);
         if (this._depthTexture) gl.deleteTexture(this._depthTexture);
         this._gl = null;
       }
@@ -692,6 +763,7 @@ void main() {
         validateUrls(options);
         this._backgroundImageUrl = options.backgroundImageUrl;
         this._foregroundImageUrl = options.foregroundImageUrl;
+        this._foregroundMaskUrl = options.foregroundMaskUrl || 'foreground-mask.png';
         this._depthMapUrl = options.depthMapUrl;
 
         this._displacementScale = (options.displacementScale != null)
@@ -702,6 +774,8 @@ void main() {
           ? options.overscan : 0.02;
         this._fgScale = (options.fgScale != null)
           ? options.fgScale : 0.08;
+        this._fgZoom = (options.fgZoom != null)
+          ? options.fgZoom : 0.015;
 
         this._activeController = null;
         this._renderer = null;
@@ -731,12 +805,14 @@ void main() {
       async init() {
         let backgroundImage;
         let foregroundImage;
+        let foregroundMask;
         let depthMap;
         try {
-          [backgroundImage, foregroundImage, depthMap] = await Promise.all([
+          [backgroundImage, foregroundImage, depthMap, foregroundMask] = await Promise.all([
             this._loadImage(this._backgroundImageUrl, 'background image'),
             this._loadImage(this._foregroundImageUrl, 'foreground image'),
             this._loadImage(this._depthMapUrl, 'depth map'),
+            this._loadOptionalImage(this._foregroundMaskUrl),
           ]);
         } catch (err) {
           return;
@@ -744,7 +820,11 @@ void main() {
 
         this._backgroundImage = backgroundImage;
         this._foregroundImage = foregroundImage;
+        this._foregroundMask = foregroundMask;
         this._depthMap = depthMap;
+        if (!foregroundMask) {
+          console.warn('[ParallaxEffect] Foreground mask not found, using PNG alpha only');
+        }
         this._setup();
       }
 
@@ -762,6 +842,19 @@ void main() {
         });
       }
 
+      _loadOptionalImage(url) {
+        if (typeof url !== 'string' || url.trim() === '') {
+          return Promise.resolve(null);
+        }
+
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
       _setup() {
         const dpr = window.devicePixelRatio || 1;
         const initW = Math.round(this._canvas.clientWidth * dpr);
@@ -775,12 +868,14 @@ void main() {
           this._canvas,
           this._backgroundImage,
           this._foregroundImage,
+          this._foregroundMask,
           this._depthMap,
           {
           displacementScale: this._displacementScale,
           smoothingFactor: this._smoothingFactor,
           overscan: this._overscan,
           fgScale: this._fgScale,
+          fgZoom: this._fgZoom,
           }
         );
 
@@ -929,11 +1024,13 @@ void main() {
       const effect = new ParallaxEffect(canvas, {
         backgroundImageUrl: 'background.png',
         foregroundImageUrl: 'foreground.png',
+        foregroundMaskUrl: 'foreground-mask.png',
         depthMapUrl: 'depth.png',
-        displacementScale: 58,
+        displacementScale: 62,
         smoothingFactor: 0.06,
-        overscan: 0.03,
-        fgScale: 0.06,
+        overscan: 0.04,
+        fgScale: 0.05,
+        fgZoom: 0.015,
       });
 
       effect.addEventListener('error', (e) => {
@@ -990,6 +1087,11 @@ void main() {
       bindSlider('sl-fgscale', 'val-fgscale', 3, (value) => {
         effect._fgScale = value;
         if (effect._renderer) effect._renderer.setForegroundScale(value);
+      });
+
+      bindSlider('sl-fgzoom', 'val-fgzoom', 3, (value) => {
+        effect._fgZoom = value;
+        if (effect._renderer) effect._renderer.setForegroundZoom(value);
       });
 
       const panel = document.getElementById('controls');

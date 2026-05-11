@@ -1,24 +1,25 @@
 # Journal
 
 ## Current State (2026-05-11)
-- `parallax/gyro-parallax-v2.html` is a 4-input compositor pipeline (background + transparent foreground + optional foreground mask + depth map).
-- Fragment shader now increases background tilt response significantly, adds subtle background perspective warp, and keeps foreground nearly anchored so the subject does not float.
-- Foreground rendering now supports a dedicated black/white mask matte with slight edge expansion to cover plate-cleanup artifacts around the subject.
-- Foreground has a dedicated zoom control (`fgZoom`) with default 0.015 (~1.5%) for a slight closer look.
+- `parallax/gyro-parallax-v2.html` uses a 4-input compositor (background, transparent foreground, optional foreground mask, depth map).
+- Foreground halo cleanup added in fragment shader:
+	- contracts mask edge with a 5-tap min filter (center + 4-neighbor erosion)
+	- tightens alpha/mask matte thresholds
+	- applies white-edge decontamination on low-alpha edge pixels
+- Result target: remove visible white stroke around the foreground subject while preserving core detail.
 
 ## Defaults / Controls
-- `displacementScale`: 62
-- `smoothingFactor`: 0.06
-- `overscan`: 0.04
-- `fgScale`: 0.05
-- `fgZoom`: 0.015
-- `foregroundMaskUrl`: `mask.png` (optional; falls back to PNG alpha)
+- displacementScale: 62
+- smoothingFactor: 0.06
+- overscan: 0.04
+- fgScale: 0.05
+- fgZoom: 0.015
+- foregroundMaskUrl: mask.png (optional; falls back to PNG alpha)
 
 ## Known Risks
-- Visual quality still depends on alignment between foreground cutout, depth map, and optional mask.
-- If the mask has hard edges, very fine hair/soft edges may still need threshold tuning in shader matte smoothstep.
-- High tilt angles can still clamp UVs near edges; increase overscan if edge smearing appears.
-- Some depth maps may need polarity inversion if near/far motion feels reversed.
+- Very soft hair/fur edges may need slight matte threshold relaxation on specific assets.
+- If foreground and background resolutions diverge heavily, mask erosion step size may need a dedicated foreground-resolution uniform.
+- Extreme tilt can still reveal UV clamp/stretch at frame edges; overscan adjustment remains the first mitigation.
 
 ## Verification
-- No VS Code diagnostics in `parallax/gyro-parallax-v2.html`.
+- No VS Code diagnostics in `parallax/gyro-parallax-v2.html` after halo-fix patch.

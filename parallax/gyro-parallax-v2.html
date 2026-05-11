@@ -232,14 +232,9 @@ void main() {
 
   vec4 backgroundColor = texture2D(uBackgroundImage, bgUV);
   vec4 foregroundColor = texture2D(uForegroundImage, fgZoomedUV);
-  vec2 maskTexel = 1.35 / uImageResolution;
   float maskAlpha = texture2D(uForegroundMask, fgZoomedUV).r;
-  maskAlpha = max(maskAlpha, texture2D(uForegroundMask, fgZoomedUV + vec2(maskTexel.x, 0.0)).r);
-  maskAlpha = max(maskAlpha, texture2D(uForegroundMask, fgZoomedUV - vec2(maskTexel.x, 0.0)).r);
-  maskAlpha = max(maskAlpha, texture2D(uForegroundMask, fgZoomedUV + vec2(0.0, maskTexel.y)).r);
-  maskAlpha = max(maskAlpha, texture2D(uForegroundMask, fgZoomedUV - vec2(0.0, maskTexel.y)).r);
   float alphaMatte = smoothstep(0.1, 0.75, foregroundColor.a);
-  float maskMatte = smoothstep(0.35, 0.85, maskAlpha);
+  float maskMatte = smoothstep(0.48, 0.98, maskAlpha);
   float foregroundMatte = mix(alphaMatte, max(alphaMatte, maskMatte), uUseForegroundMask);
   vec3 foregroundRgb = foregroundColor.rgb;
   if (foregroundColor.a > 0.001) {

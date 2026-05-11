@@ -220,25 +220,47 @@ void main() {
   vec2 bgDrift = baseOffset * (1.2 + farMask * 0.95);
   vec2 bgPerspective = (imageUV - 0.5) * (0.012 + farMask * 0.02) * (tiltMag * 1.5);
 
-  // Keep the subject visually pinned so only the background feels like it shifts.
+  // Keep the subject visually pinned, but add subtle interior depth motion.
   vec2 fgLockOffset = baseOffset * (uFgScale * (0.05 + depth * 0.03));
   vec2 fgPerspective = (imageUV - 0.5) * tiltMag * (uFgScale * 0.018);
 
   vec2 bgOffset = bgDrift + depthWarp + bgPerspective;
 
   vec2 bgUV = clamp(imageUV + bgOffset, 0.0, 1.0);
-  vec2 fgStableUV = clamp(imageUV + fgLockOffset - fgPerspective, 0.0, 1.0);
+  vec2 fgBaseUV = clamp(imageUV + fgLockOffset - fgPerspective, 0.0, 1.0);
+  float fgBaseAlpha = texture2D(uForegroundImage, fgBaseUV).a;
+  float fgBaseAlphaInner = smoothstep(0.35, 0.92, fgBaseAlpha);
+  float fgBaseMask = texture2D(uForegroundMask, fgBaseUV).r;
+  float fgBaseMaskInner = smoothstep(0.72, 0.98, fgBaseMask);
+  float fgInteriorLock = mix(
+    fgBaseAlphaInner,
+    min(fgBaseAlphaInner, fgBaseMaskInner),
+    uUseForegroundMask
+  );
+  vec2 fgDepthWarp = depthWarp * (0.16 + depth * 0.08) * fgInteriorLock;
+  vec2 fgStableUV = clamp(fgBaseUV + fgDepthWarp, 0.0, 1.0);
   vec2 fgZoomedUV = clamp((fgStableUV - 0.5) * (1.0 - uFgZoom) + 0.5, 0.0, 1.0);
 
   vec4 backgroundColor = texture2D(uBackgroundImage, bgUV);
   vec4 foregroundColor = texture2D(uForegroundImage, fgZoomedUV);
   vec2 fgTexel = vec2(1.0) / max(uImageResolution, vec2(1.0));
+  float depthRight = texture2D(uDepthMap, clamp(imageUV + vec2(fgTexel.x, 0.0), 0.0, 1.0)).r;
+  float depthLeft = texture2D(uDepthMap, clamp(imageUV - vec2(fgTexel.x, 0.0), 0.0, 1.0)).r;
+  float depthUp = texture2D(uDepthMap, clamp(imageUV + vec2(0.0, fgTexel.y), 0.0, 1.0)).r;
+  float depthDown = texture2D(uDepthMap, clamp(imageUV - vec2(0.0, fgTexel.y), 0.0, 1.0)).r;
+  vec3 depthNormal = normalize(vec3(depthLeft - depthRight, depthDown - depthUp, 0.35));
+  vec3 lightDir = normalize(vec3(-uTilt.x * 1.45, uTilt.y * 1.45, 1.0));
+  float relight = dot(depthNormal, lightDir);
+  float relightGain = clamp(1.0 + relight * 0.08, 0.94, 1.08);
+
   float maskCenter = texture2D(uForegroundMask, fgZoomedUV).r;
   float maskRight = texture2D(uForegroundMask, fgZoomedUV + vec2(fgTexel.x, 0.0)).r;
   float maskLeft = texture2D(uForegroundMask, fgZoomedUV - vec2(fgTexel.x, 0.0)).r;
   float maskUp = texture2D(uForegroundMask, fgZoomedUV + vec2(0.0, fgTexel.y)).r;
   float maskDown = texture2D(uForegroundMask, fgZoomedUV - vec2(0.0, fgTexel.y)).r;
   float maskAlpha = min(maskCenter, min(min(maskRight, maskLeft), min(maskUp, maskDown)));
+  float maskDilated = max(maskCenter, max(max(maskRight, maskLeft), max(maskUp, maskDown)));
+  float maskEdgeBand = clamp(maskDilated - maskAlpha, 0.0, 1.0);
 
   float alphaMatte = smoothstep(0.20, 0.80, foregroundColor.a);
   float maskMatte = smoothstep(0.74, 0.995, maskAlpha);
@@ -256,9 +278,19 @@ void main() {
   float edgeHaloFix = (1.0 - smoothstep(0.08, 0.55, sourceAlpha)) * foregroundMatte;
   vec3 foregroundRgb = foregroundColor.rgb;
   foregroundRgb = mix(foregroundRgb, whiteDecontam, edgeHaloFix);
+
+  float relightWeight = foregroundMatte * fgInteriorLock * smoothstep(0.08, 0.85, tiltMag);
+  foregroundRgb *= mix(1.0, relightGain, relightWeight);
+
+  float contactShadow = smoothstep(0.02, 0.22, maskEdgeBand)
+    * smoothstep(0.18, 0.90, depth)
+    * (0.035 + tiltMag * 0.025)
+    * uUseForegroundMask;
+
   float fgDepthMask = smoothstep(0.25, 0.85, depth);
   float fgAlpha = foregroundMatte * mix(0.88, 1.0, fgDepthMask);
-  vec3 color = mix(backgroundColor.rgb, foregroundRgb, fgAlpha);
+  vec3 bgShaded = backgroundColor.rgb * (1.0 - contactShadow);
+  vec3 color = mix(bgShaded, foregroundRgb, fgAlpha);
 
   gl_FragColor = vec4(color, 1.0);
 }

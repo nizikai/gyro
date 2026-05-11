@@ -2,7 +2,6 @@
 
 ## Current State (2026-05-11)
 - `parallax/gyro-parallax-v2.html` uses a 4-input compositor (background, transparent foreground, optional foreground mask, depth map).
-- Foreground now receives depth-map distortion via a damped shared depth warp term, so both layers respond to depth instead of only background drift.
 - Foreground halo cleanup added in fragment shader:
 	- contracts mask edge with a 5-tap min filter (center + 4-neighbor erosion)
 	- tightens alpha/mask matte thresholds

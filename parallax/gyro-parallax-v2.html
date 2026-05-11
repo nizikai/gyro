@@ -225,11 +225,9 @@ void main() {
   vec2 fgPerspective = (imageUV - 0.5) * tiltMag * (uFgScale * 0.018);
 
   vec2 bgOffset = bgDrift + depthWarp + bgPerspective;
-  vec2 fgDepthWarp = depthWarp * (0.55 + depth * 0.20);
-  vec2 fgOffset = fgDepthWarp + fgLockOffset - fgPerspective;
 
   vec2 bgUV = clamp(imageUV + bgOffset, 0.0, 1.0);
-  vec2 fgStableUV = clamp(imageUV + fgOffset, 0.0, 1.0);
+  vec2 fgStableUV = clamp(imageUV + fgLockOffset - fgPerspective, 0.0, 1.0);
   vec2 fgZoomedUV = clamp((fgStableUV - 0.5) * (1.0 - uFgZoom) + 0.5, 0.0, 1.0);
 
   vec4 backgroundColor = texture2D(uBackgroundImage, bgUV);

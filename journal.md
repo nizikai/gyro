@@ -1,24 +1,20 @@
 # Journal
 
-## Latest Milestone
-- Converted `parallax/gyro-parallax-v2.html` into a true 3-layer compositor.
-- Rendering now uses separate textures for background image, transparent foreground PNG, and depth map.
+## Current State (2026-05-11)
+- `parallax/gyro-parallax-v2.html` remains a 3-layer compositor (background + transparent foreground + depth map).
+- Fragment shader now uses one shared depth warp for both layers to prevent foreground/background drift.
+- Foreground motion now adds a subtle depth-driven lead plus light perspective scaling to mimic iPhone wallpaper behavior.
+- Foreground blending now includes depth-assisted alpha weighting for clearer near-subject presence.
 
-## Current Behavior
-- `ParallaxEffect` now requires `backgroundImageUrl`, `foregroundImageUrl`, and `depthMapUrl`.
-- Fragment shader warps background and foreground with different depth-based offsets, then alpha-composites foreground over background.
-- Renderer exposes setter APIs for displacement, smoothing, overscan, and foreground scale.
-- Slider bindings now call renderer setters instead of mutating internal renderer fields directly.
-- iOS permission flow and deviceorientation control remain unchanged.
+## Defaults / Controls
+- `displacementScale`: 50
+- `smoothingFactor`: 0.06
+- `overscan`: 0.02
+- `fgScale`: 0.08
 
-## Default Asset Names
-- `background.png`
-- `foreground.png`
-- `depth.png`
+## Known Risks
+- Visual quality depends on asset alignment: foreground cutout and depth map edges must match.
+- Some depth maps may need polarity inversion if near/far motion feels reversed.
 
 ## Verification
-- VS Code diagnostics: no errors in `parallax/gyro-parallax-v2.html`.
-
-## Open Notes
-- Motion tuning is controlled by `displacementScale` and `fgScale` in the 3-layer shader.
-- `parallax/gyro-parallax.html` remains untouched as the original 2-image version.
+- No VS Code diagnostics in `parallax/gyro-parallax-v2.html`.

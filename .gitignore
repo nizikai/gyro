@@ -1,3 +1,5 @@
 /.kiro
 /.vscode
 ./journal.md
+# Ignore all model checkpoints
+models/checkpoints/big-lama/models/*

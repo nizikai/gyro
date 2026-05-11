@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gyro Parallax Effect</title>
+  <title>Gyro Parallax 3-Layer</title>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -24,7 +24,7 @@
       height: 100%;
     }
 
-    /* Controls panel */
+    /* ── Controls panel ── */
     #controls {
       position: fixed;
       bottom: 20px;
@@ -119,10 +119,11 @@
 <body>
   <canvas id="canvas"></canvas>
 
+  <!-- Controls panel -->
   <div id="controls">
     <h3>
       Parameters
-      <button id="controls-close" title="Hide">x</button>
+      <button id="controls-close" title="Hide">✕</button>
     </h3>
 
     <div class="ctrl-row">
@@ -151,26 +152,10 @@
 
     <div class="ctrl-row">
       <div class="ctrl-label">
-        <span>Background Shrink</span>
-        <span id="val-bgshrink">0.35</span>
+        <span>Foreground Scale</span>
+        <span id="val-fgscale">0.08</span>
       </div>
-      <input type="range" id="sl-bgshrink" min="0" max="0.8" step="0.01" value="0.35">
-    </div>
-
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span>Foreground Threshold</span>
-        <span id="val-fgthresh">0.62</span>
-      </div>
-      <input type="range" id="sl-fgthresh" min="0.35" max="0.9" step="0.01" value="0.62">
-    </div>
-
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span>Foreground Feather</span>
-        <span id="val-fgfeather">0.08</span>
-      </div>
-      <input type="range" id="sl-fgfeather" min="0.005" max="0.25" step="0.005" value="0.08">
+      <input type="range" id="sl-fgscale" min="0" max="0.3" step="0.005" value="0.08">
     </div>
   </div>
 
@@ -188,32 +173,19 @@ void main() {
 
     const FRAGMENT_SHADER_SOURCE = `
 precision mediump float;
-uniform sampler2D uSourceImage;
+uniform sampler2D uBackgroundImage;
+uniform sampler2D uForegroundImage;
 uniform sampler2D uDepthMap;
 uniform vec2 uTilt;
 uniform float uDisplacementScale;
 uniform vec2 uResolution;
 uniform vec4 uUVTransform;
 uniform float uOverscan;
-uniform float uFgThreshold;
-uniform float uFgFeather;
-uniform float uBgShrink;
+uniform float uFgScale;
 varying vec2 vUV;
 
-float nearMaskFromDepth(float depthValue) {
-  return smoothstep(uFgThreshold - uFgFeather, uFgThreshold + uFgFeather, depthValue);
-}
-
-vec2 safeNormalize(vec2 value) {
-  float len = length(value);
-  if (len < 0.00001) {
-    return vec2(0.0, 0.0);
-  }
-  return value / len;
-}
-
 void main() {
-  vec2 scale = uUVTransform.xy;
+  vec2 scale  = uUVTransform.xy;
   vec2 offset = uUVTransform.zw;
 
   if (vUV.x < offset.x || vUV.x > offset.x + scale.x ||
@@ -225,46 +197,24 @@ void main() {
   vec2 imageUV = (vUV - offset) / scale;
   imageUV = imageUV * (1.0 - 2.0 * uOverscan) + uOverscan;
 
-  vec2 texel = 1.0 / (uResolution * scale);
-  vec2 sampleStep = texel * 2.0;
-
   float depth = texture2D(uDepthMap, imageUV).r;
-  float nearMask = nearMaskFromDepth(depth);
+  vec2 baseOffset = uTilt * uDisplacementScale / (uResolution * scale);
+  vec2 bgOffset = baseOffset * (1.0 - depth);
+  vec2 fgOffset = baseOffset * (1.0 + depth * (uFgScale * 8.0));
 
-  float mL = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV - vec2(sampleStep.x, 0.0), 0.0, 1.0)).r);
-  float mR = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV + vec2(sampleStep.x, 0.0), 0.0, 1.0)).r);
-  float mU = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV + vec2(0.0, sampleStep.y), 0.0, 1.0)).r);
-  float mD = nearMaskFromDepth(texture2D(uDepthMap, clamp(imageUV - vec2(0.0, sampleStep.y), 0.0, 1.0)).r);
+  vec2 bgUV = clamp(imageUV + bgOffset, 0.0, 1.0);
+  vec2 fgUV = clamp(imageUV + fgOffset, 0.0, 1.0);
 
-  float nearInfluence = max(nearMask, max(max(mL, mR), max(mU, mD)));
+  vec4 backgroundColor = texture2D(uBackgroundImage, bgUV);
+  vec4 foregroundColor = texture2D(uForegroundImage, fgUV);
+  vec3 color = mix(backgroundColor.rgb, foregroundColor.rgb, foregroundColor.a);
 
-  float bgDepthClamp = clamp(uFgThreshold - 0.5 * uFgFeather, 0.0, 1.0);
-  float bgDepth = min(depth, bgDepthClamp);
-
-  vec2 bgParallaxOffset = uTilt * (1.0 - bgDepth) * uDisplacementScale / (uResolution * scale);
-  vec2 fgParallaxOffset = uTilt * (1.0 - depth) * uDisplacementScale / (uResolution * scale);
-
-  vec2 radial = safeNormalize(imageUV - vec2(0.5, 0.5));
-  vec2 gradient = vec2(mR - mL, mU - mD);
-  vec2 gradDir = safeNormalize(gradient);
-  float edgeStrength = clamp(length(gradient) * 2.0, 0.0, 1.0);
-  vec2 shrinkDir = safeNormalize(mix(radial, gradDir, edgeStrength));
-
-  vec2 bgShrinkOffset = shrinkDir * nearInfluence * uBgShrink * texel * 28.0;
-
-  vec2 bgUV = clamp(imageUV + bgParallaxOffset + bgShrinkOffset, 0.0, 1.0);
-  vec2 fgUV = clamp(imageUV + fgParallaxOffset, 0.0, 1.0);
-
-  vec3 bgColor = texture2D(uSourceImage, bgUV).rgb;
-  vec3 fgColor = texture2D(uSourceImage, fgUV).rgb;
-
-  vec3 outColor = mix(bgColor, fgColor, nearMask);
-  gl_FragColor = vec4(outColor, 1.0);
+  gl_FragColor = vec4(color, 1.0);
 }
 `;
 
     function computeUVTransform(imageWidth, imageHeight, canvasWidth, canvasHeight) {
-      const imageAspect = imageWidth / imageHeight;
+      const imageAspect  = imageWidth / imageHeight;
       const canvasAspect = canvasWidth / canvasHeight;
 
       if (imageAspect > canvasAspect) {
@@ -277,23 +227,19 @@ void main() {
     }
 
     class Renderer {
-      constructor(canvas, sourceImage, depthMap, options) {
+      constructor(canvas, backgroundImage, foregroundImage, depthMap, options) {
         this._canvas = canvas;
-        this._sourceImage = sourceImage;
+        this._backgroundImage = backgroundImage;
+        this._foregroundImage = foregroundImage;
         this._depthMap = depthMap;
-
         this._displacementScale = (options && options.displacementScale != null)
-          ? options.displacementScale : 50;
+          ? options.displacementScale : 30;
         this._smoothingFactor = (options && options.smoothingFactor != null)
-          ? options.smoothingFactor : 0.06;
+          ? options.smoothingFactor : 0.1;
         this._overscan = (options && options.overscan != null)
           ? options.overscan : 0.02;
-        this._fgThreshold = (options && options.fgThreshold != null)
-          ? options.fgThreshold : 0.62;
-        this._fgFeather = (options && options.fgFeather != null)
-          ? options.fgFeather : 0.08;
-        this._bgShrink = (options && options.bgShrink != null)
-          ? options.bgShrink : 0.35;
+        this._fgScale = (options && options.fgScale != null)
+          ? options.fgScale : 0.08;
 
         this._currentTilt = { x: 0, y: 0 };
         this._targetTilt = { x: 0, y: 0 };
@@ -305,7 +251,8 @@ void main() {
         this._gl = null;
         this._program = null;
         this._quadBuffer = null;
-        this._sourceTexture = null;
+        this._backgroundTexture = null;
+        this._foregroundTexture = null;
         this._depthTexture = null;
         this._uniforms = {};
 
@@ -346,7 +293,6 @@ void main() {
            1, -1,
            1,  1,
         ]);
-
         this._quadBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
@@ -355,24 +301,25 @@ void main() {
         gl.enableVertexAttribArray(aPosition);
         gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
-        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
-        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
+        this._backgroundTexture = this._uploadTexture(gl, this._backgroundImage, 0);
+        this._foregroundTexture = this._uploadTexture(gl, this._foregroundImage, 1);
+        this._depthTexture = this._uploadTexture(gl, this._depthMap, 2);
 
         this._uniforms = {
-          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
+          uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
+          uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution: gl.getUniformLocation(program, 'uResolution'),
           uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan: gl.getUniformLocation(program, 'uOverscan'),
-          uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
-          uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
-          uBgShrink: gl.getUniformLocation(program, 'uBgShrink'),
+          uFgScale: gl.getUniformLocation(program, 'uFgScale'),
         };
 
-        gl.uniform1i(this._uniforms.uSourceImage, 0);
-        gl.uniform1i(this._uniforms.uDepthMap, 1);
+        gl.uniform1i(this._uniforms.uBackgroundImage, 0);
+        gl.uniform1i(this._uniforms.uForegroundImage, 1);
+        gl.uniform1i(this._uniforms.uDepthMap, 2);
 
         this._rafId = requestAnimationFrame(this._tick);
         return true;
@@ -414,10 +361,10 @@ void main() {
         cur.y += (tgt.y - cur.y) * alpha;
 
         const last = this._lastRenderedTilt;
-        const stepTol = 0.0001;
-        const targetTol = 0.0008;
-        const stepIsTiny = Math.abs(cur.x - last.x) < stepTol && Math.abs(cur.y - last.y) < stepTol;
-        const nearTarget = Math.abs(cur.x - tgt.x) < targetTol && Math.abs(cur.y - tgt.y) < targetTol;
+        const STEP_TOL = 0.0001;
+        const TARGET_TOL = 0.0008;
+        const stepIsTiny = Math.abs(cur.x - last.x) < STEP_TOL && Math.abs(cur.y - last.y) < STEP_TOL;
+        const nearTarget = Math.abs(cur.x - tgt.x) < TARGET_TOL && Math.abs(cur.y - tgt.y) < TARGET_TOL;
 
         if (!this._needsRedraw && stepIsTiny && nearTarget) {
           cur.x = tgt.x;
@@ -438,17 +385,14 @@ void main() {
         gl.uniform2f(u.uResolution, canvas.width, canvas.height);
 
         const uv = computeUVTransform(
-          this._sourceImage.naturalWidth || this._sourceImage.width,
-          this._sourceImage.naturalHeight || this._sourceImage.height,
+          this._backgroundImage.naturalWidth || this._backgroundImage.width,
+          this._backgroundImage.naturalHeight || this._backgroundImage.height,
           canvas.width,
           canvas.height
         );
-
         gl.uniform4f(u.uUVTransform, uv.scaleX, uv.scaleY, uv.offsetX, uv.offsetY);
         gl.uniform1f(u.uOverscan, this._overscan);
-        gl.uniform1f(u.uFgThreshold, this._fgThreshold);
-        gl.uniform1f(u.uFgFeather, this._fgFeather);
-        gl.uniform1f(u.uBgShrink, this._bgShrink);
+        gl.uniform1f(u.uFgScale, this._fgScale);
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -461,45 +405,38 @@ void main() {
         this._targetTilt = { x: tilt.x, y: tilt.y };
       }
 
-      setDisplacementScale(value) {
-        if (!Number.isFinite(value)) return;
-        this._displacementScale = value;
+      setDisplacementScale(scale) {
+        if (!Number.isFinite(scale)) return;
+        this._displacementScale = scale;
         this._needsRedraw = true;
       }
 
       setSmoothingFactor(value) {
-        if (!Number.isFinite(value) || value <= 0) return;
-        this._smoothingFactor = value;
+        if (!Number.isFinite(value)) return;
+        this._smoothingFactor = Math.max(0.01, Math.min(0.3, value));
       }
 
       setOverscan(value) {
-        if (!Number.isFinite(value) || value < 0) return;
-        this._overscan = value;
-        this._needsRedraw = true;
-      }
-
-      setForegroundThreshold(value) {
         if (!Number.isFinite(value)) return;
-        this._fgThreshold = Math.max(0, Math.min(1, value));
+        this._overscan = Math.max(0, Math.min(0.25, value));
         this._needsRedraw = true;
       }
 
-      setForegroundFeather(value) {
-        if (!Number.isFinite(value) || value < 0) return;
-        this._fgFeather = Math.max(0.001, value);
+      setForegroundScale(value) {
+        if (!Number.isFinite(value)) return;
+        this._fgScale = Math.max(0, Math.min(0.3, value));
         this._needsRedraw = true;
       }
 
-      setBackgroundShrink(value) {
-        if (!Number.isFinite(value) || value < 0) return;
-        this._bgShrink = value;
+      requestRedraw() {
         this._needsRedraw = true;
       }
 
       resize() {
-        if (!this._gl) return;
-        this._gl.viewport(0, 0, this._canvas.width, this._canvas.height);
-        this._needsRedraw = true;
+        if (this._gl) {
+          this._gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+          this._needsRedraw = true;
+        }
       }
 
       pause() {
@@ -542,26 +479,28 @@ void main() {
         gl.enableVertexAttribArray(aPosition);
         gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
-        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
+        if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
+        if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
         if (this._depthTexture) gl.deleteTexture(this._depthTexture);
-        this._sourceTexture = this._uploadTexture(gl, this._sourceImage, 0);
-        this._depthTexture = this._uploadTexture(gl, this._depthMap, 1);
+        this._backgroundTexture = this._uploadTexture(gl, this._backgroundImage, 0);
+        this._foregroundTexture = this._uploadTexture(gl, this._foregroundImage, 1);
+        this._depthTexture = this._uploadTexture(gl, this._depthMap, 2);
 
         this._uniforms = {
-          uSourceImage: gl.getUniformLocation(program, 'uSourceImage'),
+          uBackgroundImage: gl.getUniformLocation(program, 'uBackgroundImage'),
+          uForegroundImage: gl.getUniformLocation(program, 'uForegroundImage'),
           uDepthMap: gl.getUniformLocation(program, 'uDepthMap'),
           uTilt: gl.getUniformLocation(program, 'uTilt'),
           uDisplacementScale: gl.getUniformLocation(program, 'uDisplacementScale'),
           uResolution: gl.getUniformLocation(program, 'uResolution'),
           uUVTransform: gl.getUniformLocation(program, 'uUVTransform'),
           uOverscan: gl.getUniformLocation(program, 'uOverscan'),
-          uFgThreshold: gl.getUniformLocation(program, 'uFgThreshold'),
-          uFgFeather: gl.getUniformLocation(program, 'uFgFeather'),
-          uBgShrink: gl.getUniformLocation(program, 'uBgShrink'),
+          uFgScale: gl.getUniformLocation(program, 'uFgScale'),
         };
 
-        gl.uniform1i(this._uniforms.uSourceImage, 0);
-        gl.uniform1i(this._uniforms.uDepthMap, 1);
+        gl.uniform1i(this._uniforms.uBackgroundImage, 0);
+        gl.uniform1i(this._uniforms.uForegroundImage, 1);
+        gl.uniform1i(this._uniforms.uDepthMap, 2);
 
         this._needsRedraw = true;
         this._rafId = requestAnimationFrame(this._tick);
@@ -573,7 +512,8 @@ void main() {
         if (!gl) return;
         if (this._program) gl.deleteProgram(this._program);
         if (this._quadBuffer) gl.deleteBuffer(this._quadBuffer);
-        if (this._sourceTexture) gl.deleteTexture(this._sourceTexture);
+        if (this._backgroundTexture) gl.deleteTexture(this._backgroundTexture);
+        if (this._foregroundTexture) gl.deleteTexture(this._foregroundTexture);
         if (this._depthTexture) gl.deleteTexture(this._depthTexture);
         this._gl = null;
       }
@@ -601,19 +541,19 @@ void main() {
         window.removeEventListener('deviceorientation', this._onDeviceOrientation);
       }
 
-      _onDeviceOrientation(event) {
-        if (event.beta === null || event.gamma === null) return;
+      _onDeviceOrientation(e) {
+        if (e.beta === null || e.gamma === null) return;
 
         if (this._baseBeta === null && this._baseGamma === null) {
-          this._baseBeta = event.beta;
-          this._baseGamma = event.gamma;
+          this._baseBeta = e.beta;
+          this._baseGamma = e.gamma;
           this._onTilt({ x: 0, y: 0 });
           return;
         }
 
         this._onTilt({
-          x: normalizeAngle(event.gamma, this._baseGamma),
-          y: normalizeAngle(event.beta, this._baseBeta),
+          x: normalizeAngle(e.gamma, this._baseGamma),
+          y: normalizeAngle(e.beta, this._baseBeta),
         });
       }
     }
@@ -632,14 +572,12 @@ void main() {
         ) {
           return true;
         }
-
         if (
           typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function'
         ) {
           return true;
         }
-
         return false;
       }
 
@@ -697,40 +635,59 @@ void main() {
           } else {
             this._onDenied();
           }
-        }).catch((error) => {
-          console.warn('PermissionManager: requestPermission() threw:', error);
+        }).catch((err) => {
+          console.warn('PermissionManager: requestPermission() threw:', err);
           this._removeOverlay();
           this._onDenied();
         });
       }
 
       _removeOverlay() {
-        if (!this._overlay) return;
-        if (this._overlay.parentNode) {
-          this._overlay.parentNode.removeChild(this._overlay);
+        if (this._overlay) {
+          if (this._overlay.parentNode) {
+            this._overlay.parentNode.removeChild(this._overlay);
+          }
+          this._overlay = null;
         }
-        this._overlay = null;
+      }
+    }
+
+    function validateUrls(options) {
+      if (!options || typeof options !== 'object') {
+        throw new Error('Options object is required');
+      }
+
+      const required = [
+        { key: 'backgroundImageUrl', label: 'backgroundImageUrl' },
+        { key: 'foregroundImageUrl', label: 'foregroundImageUrl' },
+        { key: 'depthMapUrl', label: 'depthMapUrl' },
+      ];
+
+      for (const entry of required) {
+        const value = options[entry.key];
+        if (typeof value !== 'string' || value.trim() === '') {
+          throw new Error(`${entry.label} is required and must be a non-empty string`);
+        }
       }
     }
 
     class ParallaxEffect {
       constructor(canvas, options) {
         this._canvas = canvas;
-        this._sourceImageUrl = options.sourceImageUrl;
+
+        validateUrls(options);
+        this._backgroundImageUrl = options.backgroundImageUrl;
+        this._foregroundImageUrl = options.foregroundImageUrl;
         this._depthMapUrl = options.depthMapUrl;
 
         this._displacementScale = (options.displacementScale != null)
-          ? options.displacementScale : 50;
+          ? options.displacementScale : 30;
         this._smoothingFactor = (options.smoothingFactor != null)
-          ? options.smoothingFactor : 0.06;
+          ? options.smoothingFactor : 0.1;
         this._overscan = (options.overscan != null)
           ? options.overscan : 0.02;
-        this._fgThreshold = (options.fgThreshold != null)
-          ? options.fgThreshold : 0.62;
-        this._fgFeather = (options.fgFeather != null)
-          ? options.fgFeather : 0.08;
-        this._bgShrink = (options.bgShrink != null)
-          ? options.bgShrink : 0.35;
+        this._fgScale = (options.fgScale != null)
+          ? options.fgScale : 0.08;
 
         this._activeController = null;
         this._renderer = null;
@@ -745,6 +702,12 @@ void main() {
         this._listeners.push({ type, listener });
       }
 
+      removeEventListener(type, listener) {
+        this._listeners = this._listeners.filter(
+          (entry) => !(entry.type === type && entry.listener === listener)
+        );
+      }
+
       dispatchEvent(event) {
         for (const entry of this._listeners) {
           if (entry.type === event.type) entry.listener(event);
@@ -752,18 +715,21 @@ void main() {
       }
 
       async init() {
-        let sourceImage;
+        let backgroundImage;
+        let foregroundImage;
         let depthMap;
         try {
-          [sourceImage, depthMap] = await Promise.all([
-            this._loadImage(this._sourceImageUrl, 'source image'),
+          [backgroundImage, foregroundImage, depthMap] = await Promise.all([
+            this._loadImage(this._backgroundImageUrl, 'background image'),
+            this._loadImage(this._foregroundImageUrl, 'foreground image'),
             this._loadImage(this._depthMapUrl, 'depth map'),
           ]);
-        } catch (error) {
+        } catch (err) {
           return;
         }
 
-        this._sourceImage = sourceImage;
+        this._backgroundImage = backgroundImage;
+        this._foregroundImage = foregroundImage;
         this._depthMap = depthMap;
         this._setup();
       }
@@ -791,14 +757,18 @@ void main() {
           this._canvas.height = initH;
         }
 
-        this._renderer = new Renderer(this._canvas, this._sourceImage, this._depthMap, {
+        this._renderer = new Renderer(
+          this._canvas,
+          this._backgroundImage,
+          this._foregroundImage,
+          this._depthMap,
+          {
           displacementScale: this._displacementScale,
           smoothingFactor: this._smoothingFactor,
           overscan: this._overscan,
-          fgThreshold: this._fgThreshold,
-          fgFeather: this._fgFeather,
-          bgShrink: this._bgShrink,
-        });
+          fgScale: this._fgScale,
+          }
+        );
 
         const webglOk = this._renderer.init();
         if (!webglOk) {
@@ -808,14 +778,13 @@ void main() {
           return;
         }
 
-        this._onContextLost = (event) => {
-          event.preventDefault();
+        this._onContextLost = (e) => {
+          e.preventDefault();
           this._renderer.pause();
         };
         this._onContextRestored = () => {
           this._renderer.resume();
         };
-
         this._canvas.addEventListener('webglcontextlost', this._onContextLost);
         this._canvas.addEventListener('webglcontextrestored', this._onContextRestored);
 
@@ -887,7 +856,6 @@ void main() {
           this._canvas.removeEventListener('webglcontextlost', this._onContextLost);
           this._onContextLost = null;
         }
-
         if (this._onContextRestored) {
           this._canvas.removeEventListener('webglcontextrestored', this._onContextRestored);
           this._onContextRestored = null;
@@ -923,10 +891,10 @@ void main() {
       debugOverlay.textContent = 'Initializing...';
       document.body.appendChild(debugOverlay);
 
-      function log(message) {
+      function log(msg) {
         const timestamp = new Date().toLocaleTimeString();
         const history = debugOverlay.textContent.split('\n').slice(0, 8).join('\n');
-        debugOverlay.textContent = `[${timestamp}] ${message}\n${history}`;
+        debugOverlay.textContent = `[${timestamp}] ${msg}\n${history}`;
       }
 
       const loadingText = document.createElement('div');
@@ -945,19 +913,16 @@ void main() {
       document.body.appendChild(loadingText);
 
       const effect = new ParallaxEffect(canvas, {
-        sourceImageUrl: 'input.jpeg',
+        backgroundImageUrl: 'background.png',
+        foregroundImageUrl: 'foreground.png',
         depthMapUrl: 'depth.png',
         displacementScale: 50,
         smoothingFactor: 0.06,
-        overscan: 0.02,
-        fgThreshold: 0.62,
-        fgFeather: 0.08,
-        bgShrink: 0.35,
       });
 
-      effect.addEventListener('error', (event) => {
-        log('ERROR: ' + event.detail.message);
-        loadingText.textContent = 'Error: ' + event.detail.message;
+      effect.addEventListener('error', (e) => {
+        log('ERROR: ' + e.detail.message);
+        loadingText.textContent = 'Error: ' + e.detail.message;
       });
 
       const originalSetup = effect._setup.bind(effect);
@@ -1006,19 +971,9 @@ void main() {
         if (effect._renderer) effect._renderer.setOverscan(value);
       });
 
-      bindSlider('sl-bgshrink', 'val-bgshrink', 2, (value) => {
-        effect._bgShrink = value;
-        if (effect._renderer) effect._renderer.setBackgroundShrink(value);
-      });
-
-      bindSlider('sl-fgthresh', 'val-fgthresh', 2, (value) => {
-        effect._fgThreshold = value;
-        if (effect._renderer) effect._renderer.setForegroundThreshold(value);
-      });
-
-      bindSlider('sl-fgfeather', 'val-fgfeather', 3, (value) => {
-        effect._fgFeather = value;
-        if (effect._renderer) effect._renderer.setForegroundFeather(value);
+      bindSlider('sl-fgscale', 'val-fgscale', 3, (value) => {
+        effect._fgScale = value;
+        if (effect._renderer) effect._renderer.setForegroundScale(value);
       });
 
       const panel = document.getElementById('controls');

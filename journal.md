@@ -1,30 +1,24 @@
 # Journal
 
 ## Latest Milestone
-- Reverted heavy split-layer preprocessing path in `depth/gyro-parallax copy.html` due overlap persistence and performance cost.
-- Implemented lightweight depth-guided background shrink distortion in shader and removed foreground-scale logic entirely.
+- Converted `parallax/gyro-parallax-v2.html` into a true 3-layer compositor.
+- Rendering now uses separate textures for background image, transparent foreground PNG, and depth map.
 
 ## Current Behavior
-- App loads source image + depth map, initializes WebGL renderer, and drives tilt from deviceorientation.
-- Rendering is single-pass again with one source texture + one depth map.
-- Shader computes near-mask from depth threshold/feather and applies controlled background UV shrink/distortion around near-depth influence before compositing.
-- Foreground scale has been removed from shader, controls, and renderer API.
-- Controls now: displacement, smoothing, overscan, background shrink, foreground threshold, foreground feather.
-- iOS permission prompt remains via PermissionManager.
+- `ParallaxEffect` now requires `backgroundImageUrl`, `foregroundImageUrl`, and `depthMapUrl`.
+- Fragment shader warps background and foreground with different depth-based offsets, then alpha-composites foreground over background.
+- Renderer exposes setter APIs for displacement, smoothing, overscan, and foreground scale.
+- Slider bindings now call renderer setters instead of mutating internal renderer fields directly.
+- iOS permission flow and deviceorientation control remain unchanged.
 
-## Key Tunables
-- displacementScale
-- smoothingFactor
-- overscan
-- bgShrink
-- fgThreshold
-- fgFeather
+## Default Asset Names
+- `background.png`
+- `foreground.png`
+- `depth.png`
 
 ## Verification
-- VS Code diagnostics: no errors in `depth/gyro-parallax copy.html`.
-- Browser smoke test: page loads, images load, orientation controller starts.
-- Runtime slider test: background shrink slider updates and applies live.
+- VS Code diagnostics: no errors in `parallax/gyro-parallax-v2.html`.
 
 ## Open Notes
-- This is a lower-cost heuristic intended to reduce overlap artifact without expensive preprocessing.
-- Main file parity (`depth/gyro-parallax.html`) is pending if this implementation direction is accepted.
+- Motion tuning is controlled by `displacementScale` and `fgScale` in the 3-layer shader.
+- `parallax/gyro-parallax.html` remains untouched as the original 2-image version.

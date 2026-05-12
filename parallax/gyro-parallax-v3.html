@@ -46,7 +46,10 @@
       transform: translate(-50%, -50%);
       max-width: 100%;
       max-height: 100%;
-      will-change: transform;
+      /* No will-change here: pre-creating a GPU layer causes alpha
+         compositing artifacts (faint halo) on Safari/WebKit.
+         The browser promotes it to a layer automatically when a
+         3D transform is actively applied. */
       pointer-events: none;
       display: none; /* shown once loaded */
     }
@@ -237,6 +240,14 @@
         <span id="val-fgrot">6</span>
       </div>
       <input type="range" id="sl-fgrot" min="0" max="15" step="0.5" value="6">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>FG Zoom</span>
+        <span id="val-fgzoom">1.05</span>
+      </div>
+      <input type="range" id="sl-fgzoom" min="0.8" max="1.5" step="0.01" value="1.05">
     </div>
   </div>
 
@@ -673,6 +684,7 @@ void main() {
       /* Foreground transform params (driven by sliders) */
       let fgTranslate = 8;
       let fgRotate    = 6;
+      let fgScale     = 1.05;
 
       let renderer = null;
       let gyro     = null;
@@ -694,7 +706,8 @@ void main() {
           `translate(calc(-50% + ${tilt.x * -fgTranslate}px), calc(-50% + ${tilt.y * -fgTranslate}px)) ` +
           `perspective(800px) ` +
           `rotateY(${tilt.x * fgRotate}deg) ` +
-          `rotateX(${tilt.y * -fgRotate}deg)`;
+          `rotateX(${tilt.y * -fgRotate}deg) ` +
+          `scale(${fgScale})`;
       }
 
       /* ── Boot sequence ── */
@@ -833,8 +846,9 @@ void main() {
         bindSlider('sl-base',  'val-base',  (v) => renderer && renderer.setBaseStrength(v));
         bindSlider('sl-depth', 'val-depth', (v) => renderer && renderer.setDepthStrength(v));
         bindSlider('sl-smooth','val-smooth',(v) => renderer && renderer.setSmoothing(v));
-        bindSlider('sl-fgtx', 'val-fgtx', (v) => { fgTranslate = v; });
-        bindSlider('sl-fgrot', 'val-fgrot', (v) => { fgRotate = v; });
+        bindSlider('sl-fgtx',   'val-fgtx',   (v) => { fgTranslate = v; });
+        bindSlider('sl-fgrot',  'val-fgrot',  (v) => { fgRotate = v; });
+        bindSlider('sl-fgzoom', 'val-fgzoom', (v) => { fgScale = v; });
       }
 
       setupControls();

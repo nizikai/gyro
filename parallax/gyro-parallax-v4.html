@@ -229,18 +229,18 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Pivot Depth</span>
-        <span class="lbl-val" id="val-pivot">0.40</span>
+        <span class="lbl-val" id="val-pivot">0.50</span>
       </div>
-      <input type="range" id="sl-pivot" min="0.0" max="1.0" step="0.001" value="0.4">
+      <input type="range" id="sl-pivot" min="0.0" max="1.0" step="0.001" value="0.5">
     </div>
 
     <!-- Smoothing -->
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Smoothing</span>
-        <span class="lbl-val" id="val-smoothing">0.05</span>
+        <span class="lbl-val" id="val-smoothing">0.06</span>
       </div>
-      <input type="range" id="sl-smoothing" min="0.01" max="0.30" step="0.01" value="0.05">
+      <input type="range" id="sl-smoothing" min="0.01" max="0.30" step="0.01" value="0.06">
     </div>
 
     <!-- Depth Influence -->
@@ -273,44 +273,40 @@ precision mediump float;
 
 uniform sampler2D uImage;
 uniform sampler2D uDepthMap;
-uniform vec2  uTilt;
+uniform vec2 uTilt;
 uniform float uStrength;
 uniform float uPivotDepth;
-uniform float uDepthInfluence;
-uniform vec2  uCoverScale;
-uniform vec2  uCoverOffset;
+uniform vec2 uCoverScale;
+uniform vec2 uCoverOffset;
 
 varying vec2 vUv;
 
 void main() {
-  // Map vUv through cover-fit transform so the image fills the canvas
+  // Cover fit
   vec2 coverUV = vUv * uCoverScale + uCoverOffset;
 
-  // 5-tap blur to soften harsh depth transitions and reduce tearing
-  float blurOffset = 0.004;
-  float d0 = texture2D(uDepthMap, coverUV).r;
-  float d1 = texture2D(uDepthMap, coverUV + vec2( blurOffset, 0.0)).r;
-  float d2 = texture2D(uDepthMap, coverUV + vec2(-blurOffset, 0.0)).r;
-  float d3 = texture2D(uDepthMap, coverUV + vec2(0.0,  blurOffset)).r;
-  float d4 = texture2D(uDepthMap, coverUV + vec2(0.0, -blurOffset)).r;
-  float pixelDepth = (d0 * 2.0 + d1 + d2 + d3 + d4) / 6.0;
+  // Sample depth at 5 points and average — softens hard edges in depth map
+  float b = 0.005;
+  float depth =
+    texture2D(uDepthMap, coverUV).r * 2.0 +
+    texture2D(uDepthMap, coverUV + vec2( b, 0.0)).r +
+    texture2D(uDepthMap, coverUV + vec2(-b, 0.0)).r +
+    texture2D(uDepthMap, coverUV + vec2(0.0,  b)).r +
+    texture2D(uDepthMap, coverUV + vec2(0.0, -b)).r;
+  depth /= 6.0;
 
-  // How far this pixel is from the pivot (zero = locked at pivot)
-  float relative = pixelDepth - uPivotDepth;
-  relative *= uDepthInfluence;
-  relative = clamp(relative, -0.4, 0.4);
+  // Pivot-relative displacement
+  float relative = clamp(depth - uPivotDepth, -0.35, 0.35);
+  vec2 disp = clamp(uTilt * uStrength * relative, vec2(-0.04), vec2(0.04));
 
-  // Displace UV by tilt scaled by relative depth
-  vec2 displacement = uTilt * uStrength * relative;
-  displacement = clamp(displacement, vec2(-0.05), vec2(0.05));
-  vec2 finalUV = coverUV + displacement;
+  // Sample image with displacement
+  vec2 finalUV = coverUV + disp;
 
-  // Blend toward undisplaced UV near boundaries to hide edge artifacts
+  // Soft edge fallback — never reveals canvas background
   vec2 edge = min(finalUV, 1.0 - finalUV);
   float fade = smoothstep(0.0, 0.03, min(edge.x, edge.y));
   finalUV = mix(coverUV, finalUV, fade);
 
-  // Explicit rgb + alpha=1 — depth texture must never touch gl_FragColor
   gl_FragColor = vec4(texture2D(uImage, finalUV).rgb, 1.0);
 }
 `;
@@ -320,8 +316,8 @@ void main() {
     ───────────────────────────────────────────── */
     const config = {
       strength:       0.03,
-      pivotDepth:     0.4,
-      smoothing:      0.05,
+      pivotDepth:     0.5,
+      smoothing:      0.06,
       depthInfluence: 1.0
     };
 
@@ -336,7 +332,12 @@ void main() {
        WebGL bootstrap
     ───────────────────────────────────────────── */
     const canvas = document.getElementById('canvas');
-    const gl = canvas.getContext('webgl', { alpha: false, premultipliedAlpha: false, antialias: false });
+    const gl = canvas.getContext('webgl', {
+      alpha: false,
+      premultipliedAlpha: false,
+      antialias: false,
+      preserveDrawingBuffer: false
+    });
 
     if (!gl) {
       document.body.innerHTML = '<p style="color:#fff;padding:24px">WebGL not supported on this device.</p>';
@@ -372,7 +373,6 @@ void main() {
     const uTiltLoc           = gl.getUniformLocation(prog, 'uTilt');
     const uStrengthLoc       = gl.getUniformLocation(prog, 'uStrength');
     const uPivotDepthLoc     = gl.getUniformLocation(prog, 'uPivotDepth');
-    const uDepthInfluenceLoc = gl.getUniformLocation(prog, 'uDepthInfluence');
     const uCoverScaleLoc     = gl.getUniformLocation(prog, 'uCoverScale');
     const uCoverOffsetLoc    = gl.getUniformLocation(prog, 'uCoverOffset');
     const uImageLoc          = gl.getUniformLocation(prog, 'uImage');
@@ -385,23 +385,18 @@ void main() {
     // Initialize uniforms with defaults so the first frame is valid
     gl.uniform1f(uStrengthLoc,       config.strength);
     gl.uniform1f(uPivotDepthLoc,     config.pivotDepth);
-    gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
     gl.uniform2f(uTiltLoc, 0, 0);
     gl.uniform2f(uCoverScaleLoc,  1, 1);
     gl.uniform2f(uCoverOffsetLoc, 0, 0);
 
     // ── Fullscreen quad (two triangles covering clip −1..+1) ──
-    const quadVerts = new Float32Array([
-      -1, -1,
-       1, -1,
-      -1,  1,
-      -1,  1,
-       1, -1,
-       1,  1
+    const verts = new Float32Array([
+      -1, -1,   1, -1,  -1,  1,
+      -1,  1,   1, -1,   1,  1,
     ]);
     const vbo = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
 
     const aPositionLoc = gl.getAttribLocation(prog, 'aPosition');
     gl.enableVertexAttribArray(aPositionLoc);
@@ -413,15 +408,22 @@ void main() {
     let imageW = 1, imageH = 1;
     let texturesReady = 0;
 
-    function uploadTexture(unit, img) {
-      gl.activeTexture(gl.TEXTURE0 + unit);
+    function loadTexture(gl, url, unit, callback) {
       const tex = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      const img = new Image();
+      img.onload = () => {
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        if (callback) callback(img.naturalWidth, img.naturalHeight);
+      };
+      img.onerror = () => console.error('Failed to load ' + url);
+      img.src = url;
+      return tex;
     }
 
     function onTextureLoaded() {
@@ -433,49 +435,36 @@ void main() {
       }
     }
 
-    // Load image.jpg → TEXTURE0
-    const imgEl = new Image();
-    imgEl.onload = () => {
-      imageW = imgEl.naturalWidth;
-      imageH = imgEl.naturalHeight;
-      uploadTexture(0, imgEl);
-      onTextureLoaded();
-    };
-    imgEl.onerror = () => console.error('Failed to load input.jpeg');
-    imgEl.src = 'input.jpeg';
+    // Flip Y once before any texture upload; both textures must share orientation
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
-    // Load depth.jpg → TEXTURE1
-    const depthEl = new Image();
-    depthEl.onload = () => {
-      uploadTexture(1, depthEl);
+    // Load image texture on unit 0
+    loadTexture(gl, 'input.jpeg', 0, (w, h) => {
+      imageW = w;
+      imageH = h;
       onTextureLoaded();
-    };
-    depthEl.onerror = () => console.error('Failed to load depth.png');
-    depthEl.src = 'depth.png';
+    });
+
+    // Load depth texture on unit 1
+    loadTexture(gl, 'depth.png', 1, () => {
+      onTextureLoaded();
+    });
 
     /* ─────────────────────────────────────────────
        Cover-fit UV computation
     ───────────────────────────────────────────── */
     function computeCoverUV(imgW, imgH, canvasW, canvasH) {
-      const imageAspect  = imgW / imgH;
-      const canvasAspect = canvasW / canvasH;
-      let scaleX, scaleY, offsetX, offsetY;
-
-      if (canvasAspect > imageAspect) {
-        // Canvas wider than image — fit width, crop top/bottom
-        scaleX  = 1.0;
-        scaleY  = imageAspect / canvasAspect;
-        offsetX = 0.0;
-        offsetY = (1.0 - scaleY) / 2.0;
+      const ia = imgW / imgH;
+      const ca = canvasW / canvasH;
+      let sx, sy, ox, oy;
+      if (ca > ia) {
+        sx = 1.0; sy = ia / ca;
+        ox = 0.0; oy = (1.0 - sy) / 2.0;
       } else {
-        // Canvas taller than image — fit height, crop left/right
-        scaleX  = canvasAspect / imageAspect;
-        scaleY  = 1.0;
-        offsetX = (1.0 - scaleX) / 2.0;
-        offsetY = 0.0;
+        sx = ca / ia; sy = 1.0;
+        ox = (1.0 - sx) / 2.0; oy = 0.0;
       }
-
-      return { scaleX, scaleY, offsetX, offsetY };
+      return [sx, sy, ox, oy];
     }
 
     function initCanvas() {
@@ -484,9 +473,9 @@ void main() {
       canvas.height = canvas.offsetHeight * dpr;
       gl.viewport(0, 0, canvas.width, canvas.height);
 
-      const cover = computeCoverUV(imageW, imageH, canvas.width, canvas.height);
-      gl.uniform2f(uCoverScaleLoc,  cover.scaleX,  cover.scaleY);
-      gl.uniform2f(uCoverOffsetLoc, cover.offsetX, cover.offsetY);
+      const [sx, sy, ox, oy] = computeCoverUV(imageW, imageH, canvas.width, canvas.height);
+      gl.uniform2f(uCoverScaleLoc,  sx, sy);
+      gl.uniform2f(uCoverOffsetLoc, ox, oy);
     }
 
     /* ─────────────────────────────────────────────
@@ -563,9 +552,8 @@ void main() {
 
       // Upload per-frame uniforms
       gl.uniform2f(uTiltLoc, currentTilt.x, currentTilt.y);
-      gl.uniform1f(uStrengthLoc,       config.strength);
-      gl.uniform1f(uPivotDepthLoc,     config.pivotDepth);
-      gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
+      gl.uniform1f(uStrengthLoc,   config.strength);
+      gl.uniform1f(uPivotDepthLoc, config.pivotDepth);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }

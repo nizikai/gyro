@@ -1,26 +1,13 @@
 # Journal
 
 ## Current State (2026-05-12)
-- [parallax/gyro-parallax-v2.1.html](parallax/gyro-parallax-v2.1.html) was rewritten as a raw WebGL two-pass parallax renderer.
-- Pass 1 (background): per-pixel UV displacement in fragment shader using depth map + tilt.
-- Pass 2 (foreground): fixed max displacement (depth=1 behavior) plus a subtle opposite-tilt shadow.
-
-## Input + Motion
-- Gyroscope input uses DeviceOrientationEvent: gamma for X tilt, beta for Y tilt.
-- beta/gamma are clamped to plus/minus 45 degrees and normalized to minus 1.0 to plus 1.0.
-- Tilt smoothing uses frame lerp factor 0.08.
-- Mouse and touch fallback are active when gyroscope is unavailable, denied, or not producing signal.
-
-## Rendering + Scaling
-- Fullscreen WebGL canvas with DPR-aware resize.
-- Base sampling uses zoomScale 1.12 to avoid edge exposure under displacement.
-- Main displacement strength is 0.048.
-- Foreground displacement strength is 0.06.
-
-## UX + Runtime
-- Added motion status text and error overlay.
-- Added permission prompt UI for mobile contexts where requestPermission is required.
+- Main work: [parallax/gyro-parallax-v4.html](parallax/gyro-parallax-v4.html) WebGL core rewritten (shader + texture pipeline) while keeping existing HTML layout, controls UI, and gyro/mouse input flow.
+- Vertex UV uses direct clip-to-UV mapping: `vUv = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * 0.5 + 0.5)`.
+- Texture orientation is unified for both image/depth via one global `gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)` before uploads.
+- Texture unit mapping is stable: image on unit 0, depth map on unit 1.
+- Fragment shader now uses 5-tap depth averaging, pivot-relative displacement clamp, displacement cap, and soft edge fallback with opaque output alpha.
+- Cover-fit UV uses image natural dimensions vs canvas pixel dimensions (`canvas.width/height` after DPR resize) and is recalculated on resize.
+- Current control defaults in v4: Strength 0.03 (max 0.08), Pivot Depth 0.5, Smoothing 0.06.
 
 ## Verification
-- VS Code diagnostics: no errors in [parallax/gyro-parallax-v2.1.html](parallax/gyro-parallax-v2.1.html).
-- Browser smoke check: page loads and reports ready state.
+- VS Code diagnostics: no errors in [parallax/gyro-parallax-v4.html](parallax/gyro-parallax-v4.html).

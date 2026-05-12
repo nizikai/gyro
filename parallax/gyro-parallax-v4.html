@@ -12,6 +12,7 @@
     }
 
     html, body {
+      margin: 0;
       width: 100%;
       height: 100%;
       background: #000;
@@ -30,10 +31,10 @@
     /* ── WebGL canvas — 130%×130%, shifted −15% so it centers ── */
     #canvas {
       position: absolute;
-      width: 130%;
-      height: 130%;
-      top: -15%;
-      left: -15%;
+      width: 140%;
+      height: 140%;
+      top: -20%;
+      left: -20%;
       display: block;
       will-change: transform;
     }
@@ -219,27 +220,27 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Strength</span>
-        <span class="lbl-val" id="val-strength">0.08</span>
+        <span class="lbl-val" id="val-strength">0.03</span>
       </div>
-      <input type="range" id="sl-strength" min="0.01" max="0.20" step="0.001" value="0.08">
+      <input type="range" id="sl-strength" min="0.01" max="0.08" step="0.001" value="0.03">
     </div>
 
     <!-- Pivot Depth -->
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Pivot Depth</span>
-        <span class="lbl-val" id="val-pivot">0.50</span>
+        <span class="lbl-val" id="val-pivot">0.40</span>
       </div>
-      <input type="range" id="sl-pivot" min="0.0" max="1.0" step="0.001" value="0.5">
+      <input type="range" id="sl-pivot" min="0.0" max="1.0" step="0.001" value="0.4">
     </div>
 
     <!-- Smoothing -->
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Smoothing</span>
-        <span class="lbl-val" id="val-smoothing">0.07</span>
+        <span class="lbl-val" id="val-smoothing">0.05</span>
       </div>
-      <input type="range" id="sl-smoothing" min="0.01" max="0.30" step="0.01" value="0.07">
+      <input type="range" id="sl-smoothing" min="0.01" max="0.30" step="0.01" value="0.05">
     </div>
 
     <!-- Depth Influence -->
@@ -262,7 +263,7 @@
 attribute vec2 aPosition;
 varying vec2 vUv;
 void main() {
-  vUv = vec2(aPosition.x * 0.5 + 0.5, 0.5 - aPosition.y * 0.5);
+  vUv = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * 0.5 + 0.5);
   gl_Position = vec4(aPosition, 0.0, 1.0);
 }
 `;
@@ -285,23 +286,29 @@ void main() {
   // Map vUv through cover-fit transform so the image fills the canvas
   vec2 coverUV = vUv * uCoverScale + uCoverOffset;
 
-  // Sample depth at this pixel
-  float pixelDepth = texture2D(uDepthMap, coverUV).r;
+  // 5-tap blur to soften harsh depth transitions and reduce tearing
+  float blurOffset = 0.004;
+  float d0 = texture2D(uDepthMap, coverUV).r;
+  float d1 = texture2D(uDepthMap, coverUV + vec2( blurOffset, 0.0)).r;
+  float d2 = texture2D(uDepthMap, coverUV + vec2(-blurOffset, 0.0)).r;
+  float d3 = texture2D(uDepthMap, coverUV + vec2(0.0,  blurOffset)).r;
+  float d4 = texture2D(uDepthMap, coverUV + vec2(0.0, -blurOffset)).r;
+  float pixelDepth = (d0 * 2.0 + d1 + d2 + d3 + d4) / 6.0;
 
   // How far this pixel is from the pivot (zero = locked at pivot)
-  // bright pixel (near/in front) → positive relative → moves WITH tilt
-  // dark pixel  (far/behind)     → negative relative → moves OPPOSITE to tilt
-  float relative = (pixelDepth - uPivotDepth) * uDepthInfluence;
+  float relative = pixelDepth - uPivotDepth;
+  relative *= uDepthInfluence;
+  relative = clamp(relative, -0.4, 0.4);
 
   // Displace UV by tilt scaled by relative depth
   vec2 displacement = uTilt * uStrength * relative;
+  displacement = clamp(displacement, vec2(-0.05), vec2(0.05));
   vec2 finalUV = coverUV + displacement;
 
-  // Soft edge fade — blend back to undisplaced UV near boundaries
-  // instead of hard-clamping (which causes smearing)
-  vec2 edgeDist = min(finalUV, 1.0 - finalUV);
-  float edgeFade = smoothstep(0.0, 0.02, min(edgeDist.x, edgeDist.y));
-  finalUV = mix(coverUV, finalUV, edgeFade);
+  // Blend toward undisplaced UV near boundaries to hide edge artifacts
+  vec2 edge = min(finalUV, 1.0 - finalUV);
+  float fade = smoothstep(0.0, 0.03, min(edge.x, edge.y));
+  finalUV = mix(coverUV, finalUV, fade);
 
   // Explicit rgb + alpha=1 — depth texture must never touch gl_FragColor
   gl_FragColor = vec4(texture2D(uImage, finalUV).rgb, 1.0);
@@ -312,9 +319,9 @@ void main() {
        State
     ───────────────────────────────────────────── */
     const config = {
-      strength:       0.08,
-      pivotDepth:     0.5,
-      smoothing:      0.07,
+      strength:       0.03,
+      pivotDepth:     0.4,
+      smoothing:      0.05,
       depthInfluence: 1.0
     };
 
@@ -414,7 +421,6 @@ void main() {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
     }
 

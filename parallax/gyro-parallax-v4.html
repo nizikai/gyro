@@ -32,16 +32,10 @@
       will-change: transform;
     }
 
-    /* Foreground image — full viewport, CSS translate only */
+    /* Foreground image — kept in DOM only so the browser preloads foreground.png;
+       the actual visual source is the WebGL FG pass on #bg-canvas. */
     #fg {
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      top: 0; left: 0;
-      object-fit: contain;
-      object-position: center;
-      will-change: transform;
-      pointer-events: none;
+      display: none;
     }
 
     /* iOS permission overlay */
@@ -196,10 +190,26 @@
 
   <div class="ctrl-row">
     <div class="ctrl-label">
+      <span class="lbl-name">Focus Depth</span>
+      <span class="lbl-val" id="val-focus">0.500</span>
+    </div>
+    <input type="range" id="sl-focus" min="0" max="1" step="0.01" value="0.5">
+  </div>
+
+  <div class="ctrl-row">
+    <div class="ctrl-label">
       <span class="lbl-name">FG Strength</span>
       <span class="lbl-val" id="val-fg">8</span>
     </div>
     <input type="range" id="sl-fg" min="0" max="25" step="0.5" value="8">
+  </div>
+
+  <div class="ctrl-row">
+    <div class="ctrl-label">
+      <span class="lbl-name">FG Depth Strength</span>
+      <span class="lbl-val" id="val-fg-depth">1.00</span>
+    </div>
+    <input type="range" id="sl-fg-depth" min="0" max="3" step="0.05" value="1.0">
   </div>
 
   <div class="ctrl-row">
@@ -235,55 +245,125 @@ void main() {
 const FRAG_SRC = `
 precision mediump float;
 
+// Background textures (pass 0)
 uniform sampler2D uImage;
 uniform sampler2D uDepthMap;
+
+// Foreground textures (pass 1)
+uniform sampler2D uFgImage;
+uniform sampler2D uFgDepthMap;
+
+// Shared dynamics
 uniform vec2  uTilt;
-uniform float uStrength;
 uniform float uDepthBlur;
+uniform float uFocusDepth;      // pivot depth in [0,1]; displacement = 0 here
+uniform int   uPass;            // 0 = BG, 1 = FG
+
+// Background cover-UV + strength
+uniform float uStrength;
 uniform float uCoverScale;
 uniform vec2  uCoverOffset;
+
+// Foreground cover-UV + strength
+uniform float uFgStrength;
+uniform float uFgDepthStrength;
+uniform float uFgCoverScale;
+uniform vec2  uFgCoverOffset;
+uniform int   uUseFgAlphaAsDepth; // 0 = sample uFgDepthMap.r, 1 = sample uFgImage.a
 
 varying vec2 vUv;
 
 void main() {
-  // Cover-fit UV: (vUv - 0.5) * scale + 0.5 + offset
-  vec2 coverUV = (vUv - 0.5) * uCoverScale + 0.5 + uCoverOffset;
+  bool isFg = (uPass == 1);
 
-  // 9-tap weighted depth blur to soften hard edges
+  // Per-pass cover-UV + displacement strength
+  float scale    = isFg ? uFgCoverScale  : uCoverScale;
+  vec2  offset   = isFg ? uFgCoverOffset : uCoverOffset;
+  float strength = isFg ? (uFgStrength * uFgDepthStrength) : uStrength;
+
+  // Cover-fit UV: (vUv - 0.5) * scale + 0.5 + offset
+  vec2 coverUV = (vUv - 0.5) * scale + 0.5 + offset;
+
+  // 9-tap weighted depth blur on the active depth source
+  // (kernel: center 4, axial 2, diagonal 1, sum 16 — unchanged from v3)
   float b = uDepthBlur;
   float depth = 0.0;
-  depth += texture2D(uDepthMap, coverUV).r                          * 4.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( b,  0.0)).r        * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(-b,  0.0)).r        * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( 0.0,  b)).r        * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( 0.0, -b)).r        * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( b,  b)).r          * 1.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(-b,  b)).r          * 1.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( b, -b)).r          * 1.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(-b, -b)).r          * 1.0;
+  if (isFg) {
+    if (uUseFgAlphaAsDepth == 1) {
+      // Alpha-derived foreground depth fallback
+      depth += texture2D(uFgImage, coverUV).a                     * 4.0;
+      depth += texture2D(uFgImage, coverUV + vec2( b,  0.0)).a   * 2.0;
+      depth += texture2D(uFgImage, coverUV + vec2(-b,  0.0)).a   * 2.0;
+      depth += texture2D(uFgImage, coverUV + vec2( 0.0,  b)).a   * 2.0;
+      depth += texture2D(uFgImage, coverUV + vec2( 0.0, -b)).a   * 2.0;
+      depth += texture2D(uFgImage, coverUV + vec2( b,  b)).a     * 1.0;
+      depth += texture2D(uFgImage, coverUV + vec2(-b,  b)).a     * 1.0;
+      depth += texture2D(uFgImage, coverUV + vec2( b, -b)).a     * 1.0;
+      depth += texture2D(uFgImage, coverUV + vec2(-b, -b)).a     * 1.0;
+    } else {
+      // Dedicated foreground depth map
+      depth += texture2D(uFgDepthMap, coverUV).r                     * 4.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2( b,  0.0)).r   * 2.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2(-b,  0.0)).r   * 2.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2( 0.0,  b)).r   * 2.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2( 0.0, -b)).r   * 2.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2( b,  b)).r     * 1.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2(-b,  b)).r     * 1.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2( b, -b)).r     * 1.0;
+      depth += texture2D(uFgDepthMap, coverUV + vec2(-b, -b)).r     * 1.0;
+    }
+  } else {
+    // Background depth map (same kernel as v3)
+    depth += texture2D(uDepthMap, coverUV).r                     * 4.0;
+    depth += texture2D(uDepthMap, coverUV + vec2( b,  0.0)).r   * 2.0;
+    depth += texture2D(uDepthMap, coverUV + vec2(-b,  0.0)).r   * 2.0;
+    depth += texture2D(uDepthMap, coverUV + vec2( 0.0,  b)).r   * 2.0;
+    depth += texture2D(uDepthMap, coverUV + vec2( 0.0, -b)).r   * 2.0;
+    depth += texture2D(uDepthMap, coverUV + vec2( b,  b)).r     * 1.0;
+    depth += texture2D(uDepthMap, coverUV + vec2(-b,  b)).r     * 1.0;
+    depth += texture2D(uDepthMap, coverUV + vec2( b, -b)).r     * 1.0;
+    depth += texture2D(uDepthMap, coverUV + vec2(-b, -b)).r     * 1.0;
+  }
   depth /= 16.0;
 
-  // Far pixels (dark=0) move more; near pixels (bright=1) move less
-  float depthInfluence = 1.0 - depth;
-  vec2 displacement = -uTilt * uStrength * depthInfluence;
+  // Signed pivoted displacement:
+  //   pixels behind focus (depth > uFocusDepth) move opposite to -uTilt
+  //   pixels in front (depth < uFocusDepth) move the other way
+  //   at the focus depth, displacement is zero
+  float pivoted = depth - uFocusDepth;
+  vec2 displacement = -uTilt * strength * pivoted;
 
   vec2 finalUV = coverUV + displacement;
 
-  // Soft edge fallback — never reveals canvas background colour
+  // Soft edge fade — never reveals canvas background colour (applied per pass
+  // against the active pass's coverUV)
   vec2 edge = min(finalUV, 1.0 - finalUV);
   float fade = smoothstep(0.0, 0.025, min(edge.x, edge.y));
   finalUV = mix(coverUV, finalUV, fade);
 
-  gl_FragColor = vec4(texture2D(uImage, finalUV).rgb, 1.0);
+  if (isFg) {
+    vec4 texFg = texture2D(uFgImage, finalUV);
+    // Clamp samples outside [0,1] to transparent so the FG texture never
+    // bleeds past the contain rectangle (the FG cover-UV uses contain
+    // semantics with scale < 1; any finalUV that displacement pushes out
+    // of [0,1] is outside the intended FG sampling region).
+    float inRange = step(0.0, finalUV.x) * step(0.0, finalUV.y)
+                  * step(finalUV.x, 1.0) * step(finalUV.y, 1.0);
+    gl_FragColor = vec4(texFg.rgb, texFg.a * inRange);
+  } else {
+    gl_FragColor = vec4(texture2D(uImage, finalUV).rgb, 1.0);
+  }
 }
 `;
 
 /* ── Config ── */
 const config = {
-  bgStrength: 0.03,
-  fgStrength: 8,
-  smoothing:  0.06,
-  depthBlur:  0.006
+  bgStrength:      0.03,
+  fgStrength:      8,
+  smoothing:       0.06,
+  depthBlur:       0.006,
+  focusDepth:      0.5,   // pivot depth — pixels at this depth are stationary (wired in 3.4)
+  fgDepthStrength: 1.0    // FG displacement depth modulation (wired in 3.4)
 };
 
 /* ── Tilt state ── */
@@ -295,7 +375,9 @@ let needsRedraw = true;
 
 /* ── DOM refs ── */
 const canvas = document.getElementById('bg-canvas');
-const fg     = document.getElementById('fg');
+// Note: `<img id="fg">` is kept in the DOM (display:none) so the browser
+// still preloads foreground.png, but the WebGL FG pass is now the visual
+// source of truth — no JS reference is needed here.
 
 /* ── WebGL init ── */
 const gl = canvas.getContext('webgl', {
@@ -340,6 +422,17 @@ const uCoverOffsetLoc = gl.getUniformLocation(prog, 'uCoverOffset');
 const uImageLoc       = gl.getUniformLocation(prog, 'uImage');
 const uDepthMapLoc    = gl.getUniformLocation(prog, 'uDepthMap');
 
+// New uniforms for pivoted displacement + foreground pass (wired in tasks 3.2–3.4)
+const uFocusDepthLoc        = gl.getUniformLocation(prog, 'uFocusDepth');
+const uPassLoc              = gl.getUniformLocation(prog, 'uPass');
+const uFgImageLoc           = gl.getUniformLocation(prog, 'uFgImage');
+const uFgDepthMapLoc        = gl.getUniformLocation(prog, 'uFgDepthMap');
+const uFgCoverScaleLoc      = gl.getUniformLocation(prog, 'uFgCoverScale');
+const uFgCoverOffsetLoc     = gl.getUniformLocation(prog, 'uFgCoverOffset');
+const uFgStrengthLoc        = gl.getUniformLocation(prog, 'uFgStrength');
+const uFgDepthStrengthLoc   = gl.getUniformLocation(prog, 'uFgDepthStrength');
+const uUseFgAlphaAsDepthLoc = gl.getUniformLocation(prog, 'uUseFgAlphaAsDepth');
+
 gl.uniform1i(uImageLoc,    0);   // background → TEXTURE0
 gl.uniform1i(uDepthMapLoc, 1);   // depth map  → TEXTURE1
 gl.uniform2f(uTiltLoc, 0, 0);
@@ -347,6 +440,19 @@ gl.uniform1f(uStrengthLoc,   config.bgStrength);
 gl.uniform1f(uDepthBlurLoc,  config.depthBlur);
 gl.uniform1f(uCoverScaleLoc, 1.0);
 gl.uniform2f(uCoverOffsetLoc, 0, 0);
+
+// Safe defaults for the new uniforms so the shader runs until tasks 3.2–3.4
+// complete the per-pass wiring. uPass defaults to 0 (BG), and the FG samplers
+// are never sampled at uPass=0 so their texture unit bindings are inert.
+gl.uniform1i(uFgImageLoc,           2);          // foreground  → TEXTURE2
+gl.uniform1i(uFgDepthMapLoc,        3);          // fg depth    → TEXTURE3
+gl.uniform1i(uPassLoc,              0);          // 0 = BG, 1 = FG
+gl.uniform1i(uUseFgAlphaAsDepthLoc, 1);          // fallback to FG alpha until fg-depth is wired
+gl.uniform1f(uFocusDepthLoc,        0.5);        // pivot depth default
+gl.uniform1f(uFgStrengthLoc,        0.0);
+gl.uniform1f(uFgDepthStrengthLoc,   1.0);
+gl.uniform1f(uFgCoverScaleLoc,      1.0);
+gl.uniform2f(uFgCoverOffsetLoc,     0.0, 0.0);
 
 /* ── Fullscreen quad ── */
 const quadVerts = new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]);
@@ -359,6 +465,7 @@ gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
 /* ── Texture loader ── */
 let imgW = 1, imgH = 1;
+let fgW  = 1, fgH  = 1;
 let texturesReady = 0;
 
 function loadTexture(url, unit, cb) {
@@ -383,7 +490,10 @@ gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
 function onTextureLoaded() {
   texturesReady++;
-  if (texturesReady === 2) {
+  // 3 required textures: background (0), bg depth (1), foreground (2).
+  // fg-depth.png is not shipped, so TEXTURE3 is skipped and uUseFgAlphaAsDepth
+  // remains 1 — the FG pass derives depth from the foreground image's alpha.
+  if (texturesReady === 3) {
     initCanvas();
     requestAnimationFrame(loop);
   }
@@ -394,6 +504,12 @@ loadTexture('background.png', 0, (w, h) => {
   onTextureLoaded();
 });
 loadTexture('depth.png', 1, () => {
+  onTextureLoaded();
+});
+loadTexture('foreground.png', 2, (w, h) => {
+  // Capture natural width/height so initCanvas() can compute the FG
+  // contain-UV (mirrors how imgW / imgH are captured for the BG).
+  fgW = w; fgH = h;
   onTextureLoaded();
 });
 
@@ -414,19 +530,59 @@ function computeCoverUV(iw, ih, cw, ch) {
   return { scale, offsetX, offsetY };
 }
 
+/* ── Contain UV ──
+   Mirrors `computeCoverUV` but inverts the aspect handling so the FG
+   image is sampled *inside* the canvas without cropping (matches the
+   original `object-fit: contain` on the `<img id="fg">`).
+
+   Shader formula: coverUV = (vUv - 0.5) * scale + 0.5 + offset.
+   With scale=1, offset=(0,0), vUv ∈ [0,1] samples coverUV ∈ [0,1].
+   For contain we want scale > 1 on whichever axis has extra canvas
+   space, which expands the sampled UV range outside [0, 1] on that
+   axis — and the FG branch of the shader clamps out-of-range samples
+   to transparent, producing the letterbox / pillarbox borders
+   expected of `object-fit: contain`. Offsets stay at 0 so the image
+   is centered in the canvas. */
+function computeContainUV(iw, ih, cw, ch) {
+  const imgAspect    = iw / ih;
+  const canvasAspect = cw / ch;
+  let scale;
+  if (canvasAspect > imgAspect) {
+    // Canvas is proportionally wider than image → extra horizontal
+    // canvas space; scale > 1 shrinks the sampled image region into
+    // a centred vertical strip, producing pillarbox borders.
+    scale = canvasAspect / imgAspect;
+  } else {
+    // Canvas is proportionally taller than image → extra vertical
+    // canvas space; scale > 1 shrinks the sampled image region into
+    // a centred horizontal strip, producing letterbox borders.
+    scale = imgAspect / canvasAspect;
+  }
+  return { scale, offsetX: 0, offsetY: 0 };
+}
+
 function initCanvas() {
   const dpr = window.devicePixelRatio || 1;
   canvas.width  = canvas.offsetWidth  * dpr;
   canvas.height = canvas.offsetHeight * dpr;
   gl.viewport(0, 0, canvas.width, canvas.height);
 
+  // BG cover-UV (unchanged)
   const { scale, offsetX, offsetY } = computeCoverUV(imgW, imgH, canvas.width, canvas.height);
   gl.uniform1f(uCoverScaleLoc,  scale);
   gl.uniform2f(uCoverOffsetLoc, offsetX, offsetY);
+
+  // FG contain-UV — match the original `<img id="fg">` object-fit: contain
+  // semantics so the foreground texture is sampled inside the canvas
+  // without cropping. Resize listener calls initCanvas(), so both BG and
+  // FG cover-UVs recompute together (extends 3.6 preservation to the FG).
+  const fg = computeContainUV(fgW, fgH, canvas.width, canvas.height);
+  gl.uniform1f(uFgCoverScaleLoc,  fg.scale);
+  gl.uniform2f(uFgCoverOffsetLoc, fg.offsetX, fg.offsetY);
 }
 
 window.addEventListener('resize', () => {
-  if (texturesReady < 2) return;
+  if (texturesReady < 3) return;
   initCanvas();
   needsRedraw = true;
 });
@@ -481,15 +637,36 @@ function loop() {
   if (dx < 0.0005 && dy < 0.0005 && !needsRedraw) return;
   needsRedraw = false;
 
-  // Background — WebGL
+  // Shared per-frame uniforms
   gl.uniform2f(uTiltLoc,       current.x, current.y);
-  gl.uniform1f(uStrengthLoc,   config.bgStrength);
   gl.uniform1f(uDepthBlurLoc,  config.depthBlur);
+  gl.uniform1f(uFocusDepthLoc, config.focusDepth);
+
+  // ── BG pass ─────────────────────────────────────────────────────────────
+  // Opaque background fills the canvas; no blending needed.
+  gl.disable(gl.BLEND);
+  gl.uniform1i(uPassLoc,     0);
+  gl.uniform1f(uStrengthLoc, config.bgStrength);
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-  // Foreground — CSS translate only, same direction, less movement
-  fg.style.transform =
-    `translate(${current.x * -config.fgStrength}px, ${current.y * -config.fgStrength}px)`;
+  // ── FG pass ─────────────────────────────────────────────────────────────
+  // Alpha-blend the foreground over the BG. Separate blend func so the final
+  // canvas alpha stays 1.0 (matches the `alpha: false` context).
+  gl.enable(gl.BLEND);
+  gl.blendFuncSeparate(
+    gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+    gl.ONE,       gl.ONE_MINUS_SRC_ALPHA
+  );
+  gl.uniform1i(uPassLoc, 1);
+  // PIXEL_TO_UV_X: convert the FG slider (which is a pixel value, default 8)
+  // to a UV-space scale so the shader's `-uTilt * strength * pivoted` term
+  // produces comparable motion to the old CSS translate. We divide by the
+  // canvas drawing-buffer width — the fullscreen quad maps [0,1] in U to the
+  // full canvas width, so 1 UV unit == canvas.width pixels.
+  const PIXEL_TO_UV_X = 1.0 / (canvas.width || 1);
+  gl.uniform1f(uFgStrengthLoc,      config.fgStrength * PIXEL_TO_UV_X);
+  gl.uniform1f(uFgDepthStrengthLoc, config.fgDepthStrength);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
 /* ── Controls panel ── */
@@ -515,7 +692,9 @@ function wireSlider(sliderId, valId, configKey, decimals) {
 }
 
 wireSlider('sl-strength', 'val-strength', 'bgStrength', 3);
+wireSlider('sl-focus',    'val-focus',    'focusDepth', 3);
 wireSlider('sl-fg',       'val-fg',       'fgStrength', 1);
+wireSlider('sl-fg-depth', 'val-fg-depth', 'fgDepthStrength', 2);
 wireSlider('sl-smoothing','val-smoothing','smoothing',   2);
 wireSlider('sl-blur',     'val-blur',     'depthBlur',   3);
 

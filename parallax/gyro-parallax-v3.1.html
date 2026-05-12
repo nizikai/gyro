@@ -1,11 +1,12 @@
 <!-- depth and mask no longer used -->
+<!-- horizontal is now better compared to v3 -->
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Gyro Depth Parallax v3</title>
+  <title>Gyro Horizontal Parallax v3.1</title>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -345,6 +346,22 @@
       </div>
       <input type="range" id="sl-maxtilt" min="0.1" max="1" step="0.05" value="1">
     </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Focus Depth</span>
+        <span id="val-focusdepth">0.75</span>
+      </div>
+      <input type="range" id="sl-focusdepth" min="0" max="1" step="0.01" value="0.75">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>FG Depth</span>
+        <span id="val-fgdepth">0.75</span>
+      </div>
+      <input type="range" id="sl-fgdepth" min="0" max="1" step="0.01" value="0.75">
+    </div>
   </div>
 
   <button id="controls-toggle" title="Show controls">⚙</button>
@@ -376,6 +393,7 @@ precision mediump float;
 uniform sampler2D uTexture;
 uniform vec2      uTilt;          /* normalized -1..1 */
 uniform float     uBaseStrength;  /* ~0.06 */
+uniform float     uBgParallaxFactor;
 uniform vec2      uCoverScale;    /* scale to cover-fit image into canvas */
 uniform vec2      uCoverOffset;   /* offset to center cover-fit */
 
@@ -389,7 +407,7 @@ void main() {
      Positive sign: tilt right → sample further right → image shifts left,
      which is the classic parallax direction (background recedes opposite
      to camera motion). */
-  vec2 finalUv = imageUv + (uTilt * uBaseStrength);
+  vec2 finalUv = imageUv + (uTilt * uBaseStrength * uBgParallaxFactor);
 
   gl_FragColor = texture2D(uTexture, clamp(finalUv, 0.0, 1.0));
 }
@@ -434,6 +452,7 @@ void main() {
         this._bgImage = bgImage;
 
         this._baseStrength  = opts.baseStrength  ?? 0.06;
+        this._bgParallaxFactor = opts.bgParallaxFactor ?? 0.6;
         this._smoothing     = opts.smoothing     ?? 0.07;
 
         this._currentTilt      = { x: 0, y: 0 };
@@ -465,6 +484,12 @@ void main() {
         if (!Number.isFinite(v)) return;
         this._baseStrength = v;
         this._needsRedraw  = true;
+      }
+
+      setBgParallaxFactor(v) {
+        if (!Number.isFinite(v)) return;
+        this._bgParallaxFactor = v;
+        this._needsRedraw = true;
       }
 
       setSmoothing(v) {
@@ -534,6 +559,7 @@ void main() {
           uTexture:      gl.getUniformLocation(prog, 'uTexture'),
           uTilt:         gl.getUniformLocation(prog, 'uTilt'),
           uBaseStrength: gl.getUniformLocation(prog, 'uBaseStrength'),
+          uBgParallaxFactor: gl.getUniformLocation(prog, 'uBgParallaxFactor'),
           uCoverScale:   gl.getUniformLocation(prog, 'uCoverScale'),
           uCoverOffset:  gl.getUniformLocation(prog, 'uCoverOffset'),
         };
@@ -615,6 +641,7 @@ void main() {
 
         gl.uniform2f(u.uTilt,        cur.x, cur.y);
         gl.uniform1f(u.uBaseStrength, this._baseStrength);
+        gl.uniform1f(u.uBgParallaxFactor, this._bgParallaxFactor);
         gl.uniform2f(u.uCoverScale,   cv.scaleX,  cv.scaleY);
         gl.uniform2f(u.uCoverOffset,  cv.offsetX, cv.offsetY);
 
@@ -794,10 +821,22 @@ void main() {
       let fgRotate    = 30;
       let fgScale     = 1.2;
       let maxTilt     = 1.0;
+      let focusDepth  = 0.75;
+      let fgDepth     = 0.75;
+      const bgDepth   = 0.15;
 
       let renderer = null;
       let gyro     = null;
       let mouse    = null;
+
+      function parallaxFactor(depth) {
+        return focusDepth - depth;
+      }
+
+      function syncPivotState() {
+        const bgFactor = parallaxFactor(bgDepth);
+        if (renderer) renderer.setBgParallaxFactor(bgFactor);
+      }
 
       /* ── Tilt processing: 0.5× vertical + max clamp ── */
       function processTilt(tilt) {
@@ -832,11 +871,12 @@ void main() {
 
       /* ── Foreground CSS 3D transform ── */
       function applyForegroundTransform(tilt) {
+        const fgFactor = parallaxFactor(fgDepth);
         fgImg.style.transform =
-          `translate(calc(-50% + ${tilt.x * -fgTranslate}px), calc(-50% + ${tilt.y * -fgTranslate}px)) ` +
+          `translate(calc(-50% + ${tilt.x * -fgTranslate * fgFactor}px), calc(-50% + ${tilt.y * -fgTranslate * fgFactor}px)) ` +
           `perspective(800px) ` +
-          `rotateY(${tilt.x * fgRotate}deg) ` +
-          `rotateX(${tilt.y * fgRotate}deg) ` +
+          `rotateY(${tilt.x * fgRotate * fgFactor}deg) ` +
+          `rotateX(${tilt.y * fgRotate * fgFactor}deg) ` +
           `scale(${fgScale})`;
       }
 
@@ -861,6 +901,7 @@ void main() {
 
         renderer = new Renderer(canvas, bgImage, {
           baseStrength: 0.1,
+          bgParallaxFactor: parallaxFactor(bgDepth),
           smoothing:    0.25,
         });
 
@@ -981,6 +1022,13 @@ void main() {
         bindSlider('sl-fgrot',   'val-fgrot',   (v) => { fgRotate = v; });
         bindSlider('sl-fgzoom',  'val-fgzoom',  (v) => { fgScale = v; });
         bindSlider('sl-maxtilt', 'val-maxtilt', (v) => { maxTilt = v; });
+        bindSlider('sl-focusdepth', 'val-focusdepth', (v) => {
+          focusDepth = v;
+          syncPivotState();
+        });
+        bindSlider('sl-fgdepth', 'val-fgdepth', (v) => {
+          fgDepth = v;
+        });
       }
 
       setupControls();

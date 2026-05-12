@@ -297,7 +297,14 @@ void main() {
   vec2 displacement = uTilt * uStrength * relative;
   vec2 finalUV = coverUV + displacement;
 
-  gl_FragColor = texture2D(uImage, finalUV);
+  // Soft edge fade — blend back to undisplaced UV near boundaries
+  // instead of hard-clamping (which causes smearing)
+  vec2 edgeDist = min(finalUV, 1.0 - finalUV);
+  float edgeFade = smoothstep(0.0, 0.02, min(edgeDist.x, edgeDist.y));
+  finalUV = mix(coverUV, finalUV, edgeFade);
+
+  // Explicit rgb + alpha=1 — depth texture must never touch gl_FragColor
+  gl_FragColor = vec4(texture2D(uImage, finalUV).rgb, 1.0);
 }
 `;
 
@@ -322,7 +329,7 @@ void main() {
        WebGL bootstrap
     ───────────────────────────────────────────── */
     const canvas = document.getElementById('canvas');
-    const gl = canvas.getContext('webgl', { antialias: false, alpha: false });
+    const gl = canvas.getContext('webgl', { alpha: false, premultipliedAlpha: false, antialias: false });
 
     if (!gl) {
       document.body.innerHTML = '<p style="color:#fff;padding:24px">WebGL not supported on this device.</p>';

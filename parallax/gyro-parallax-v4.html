@@ -214,6 +214,14 @@
 
   <div class="ctrl-row">
     <div class="ctrl-label">
+      <span class="lbl-name">FG Rotation (°)</span>
+      <span class="lbl-val" id="val-fg-rot">8.0</span>
+    </div>
+    <input type="range" id="sl-fg-rot" min="0" max="30" step="0.5" value="8">
+  </div>
+
+  <div class="ctrl-row">
+    <div class="ctrl-label">
       <span class="lbl-name">Smoothing</span>
       <span class="lbl-val" id="val-smoothing">0.06</span>
     </div>
@@ -269,6 +277,8 @@ uniform float uFgStrength;
 uniform float uFgDepthStrength;
 uniform float uFgCoverScale;
 uniform vec2  uFgCoverOffset;
+uniform float uFgRotation;    // signed rotation in radians, applied to FG UVs
+uniform float uCanvasAspect;  // canvas.width / canvas.height for aspect-safe rotation
 uniform int   uUseFgAlphaAsDepth; // 0 = sample uFgDepthMap.r, 1 = sample uFgImage.a
 
 varying vec2 vUv;
@@ -281,8 +291,24 @@ void main() {
   vec2  offset   = isFg ? uFgCoverOffset : uCoverOffset;
   float strength = isFg ? (uFgStrength * uFgDepthStrength) : uStrength;
 
-  // Cover-fit UV: (vUv - 0.5) * scale + 0.5 + offset
-  vec2 coverUV = (vUv - 0.5) * scale + 0.5 + offset;
+  // FG rotation: rotate the sampling UV around the canvas center before the
+  // cover-UV transform. Rotation happens in aspect-corrected canvas space so
+  // a circle stays a circle on wide/tall viewports, then we undo the aspect
+  // warp before feeding into the cover-UV math.
+  vec2 sampleUV = vUv;
+  if (isFg && uFgRotation != 0.0) {
+    vec2 centered = vUv - 0.5;
+    centered.x *= uCanvasAspect;          // to aspect-corrected canvas space
+    float c = cos(uFgRotation);
+    float s = sin(uFgRotation);
+    centered = vec2(c * centered.x - s * centered.y,
+                    s * centered.x + c * centered.y);
+    centered.x /= uCanvasAspect;          // back to UV space
+    sampleUV = centered + 0.5;
+  }
+
+  // Cover-fit UV: (sampleUV - 0.5) * scale + 0.5 + offset
+  vec2 coverUV = (sampleUV - 0.5) * scale + 0.5 + offset;
 
   // 9-tap weighted depth blur on the active depth source
   // (kernel: center 4, axial 2, diagonal 1, sum 16 — unchanged from v3)
@@ -363,7 +389,8 @@ const config = {
   smoothing:       0.06,
   depthBlur:       0.006,
   focusDepth:      0.5,   // pivot depth — pixels at this depth are stationary (wired in 3.4)
-  fgDepthStrength: 1.0    // FG displacement depth modulation (wired in 3.4)
+  fgDepthStrength: 1.0,   // FG displacement depth modulation (wired in 3.4)
+  fgRotationDeg:   8.0    // max FG rotation in degrees at full tilt
 };
 
 /* ── Tilt state ── */
@@ -431,6 +458,8 @@ const uFgCoverScaleLoc      = gl.getUniformLocation(prog, 'uFgCoverScale');
 const uFgCoverOffsetLoc     = gl.getUniformLocation(prog, 'uFgCoverOffset');
 const uFgStrengthLoc        = gl.getUniformLocation(prog, 'uFgStrength');
 const uFgDepthStrengthLoc   = gl.getUniformLocation(prog, 'uFgDepthStrength');
+const uFgRotationLoc        = gl.getUniformLocation(prog, 'uFgRotation');
+const uCanvasAspectLoc      = gl.getUniformLocation(prog, 'uCanvasAspect');
 const uUseFgAlphaAsDepthLoc = gl.getUniformLocation(prog, 'uUseFgAlphaAsDepth');
 
 gl.uniform1i(uImageLoc,    0);   // background → TEXTURE0
@@ -453,6 +482,8 @@ gl.uniform1f(uFgStrengthLoc,        0.0);
 gl.uniform1f(uFgDepthStrengthLoc,   1.0);
 gl.uniform1f(uFgCoverScaleLoc,      1.0);
 gl.uniform2f(uFgCoverOffsetLoc,     0.0, 0.0);
+gl.uniform1f(uFgRotationLoc,        0.0);
+gl.uniform1f(uCanvasAspectLoc,      1.0);
 
 /* ── Fullscreen quad ── */
 const quadVerts = new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]);
@@ -567,6 +598,10 @@ function initCanvas() {
   canvas.height = canvas.offsetHeight * dpr;
   gl.viewport(0, 0, canvas.width, canvas.height);
 
+  // Push canvas aspect for the FG rotation path (keeps rotated shape
+  // proportional instead of stretched on wide/tall viewports).
+  gl.uniform1f(uCanvasAspectLoc, canvas.width / Math.max(1, canvas.height));
+
   // BG cover-UV (unchanged)
   const { scale, offsetX, offsetY } = computeCoverUV(imgW, imgH, canvas.width, canvas.height);
   gl.uniform1f(uCoverScaleLoc,  scale);
@@ -666,6 +701,12 @@ function loop() {
   const PIXEL_TO_UV_X = 1.0 / (canvas.width || 1);
   gl.uniform1f(uFgStrengthLoc,      config.fgStrength * PIXEL_TO_UV_X);
   gl.uniform1f(uFgDepthStrengthLoc, config.fgDepthStrength);
+  // FG rotation — primarily driven by tilt.x with a subtle tilt.y contribution
+  // for a more dimensional "tumble" feel. Values in radians, scaled by the
+  // slider's degree value so the UI stays intuitive.
+  const rotRad = (config.fgRotationDeg * Math.PI / 180);
+  const fgRot  = (current.x + current.y * 0.25) * rotRad;
+  gl.uniform1f(uFgRotationLoc, fgRot);
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
@@ -695,6 +736,7 @@ wireSlider('sl-strength', 'val-strength', 'bgStrength', 3);
 wireSlider('sl-focus',    'val-focus',    'focusDepth', 3);
 wireSlider('sl-fg',       'val-fg',       'fgStrength', 1);
 wireSlider('sl-fg-depth', 'val-fg-depth', 'fgDepthStrength', 2);
+wireSlider('sl-fg-rot',   'val-fg-rot',   'fgRotationDeg', 1);
 wireSlider('sl-smoothing','val-smoothing','smoothing',   2);
 wireSlider('sl-blur',     'val-blur',     'depthBlur',   3);
 

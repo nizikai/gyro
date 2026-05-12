@@ -1,30 +1,26 @@
 # Journal
 
-## Current State (2026-05-11)
-- `parallax/gyro-parallax-v2.html` uses a 4-input compositor (background, transparent foreground, optional foreground mask, depth map).
-- Apple-style depth cues added for less-flat foreground presentation:
-	- edge-locked interior foreground depth warp (subject edges stay anchored)
-	- subtle depth-gradient relighting driven by tilt
-	- tiny mask-contour contact shadow onto background
-- Foreground halo cleanup added in fragment shader:
-	- contracts mask edge with a 5-tap min filter (center + 4-neighbor erosion)
-	- tightens alpha/mask matte thresholds
-	- applies white-edge decontamination on low-alpha edge pixels
-- Result target: remove visible white stroke around the foreground subject while preserving core detail.
+## Current State (2026-05-12)
+- [parallax/gyro-parallax-v2.1.html](parallax/gyro-parallax-v2.1.html) was rewritten as a raw WebGL two-pass parallax renderer.
+- Pass 1 (background): per-pixel UV displacement in fragment shader using depth map + tilt.
+- Pass 2 (foreground): fixed max displacement (depth=1 behavior) plus a subtle opposite-tilt shadow.
 
-## Defaults / Controls
-- displacementScale: 62
-- smoothingFactor: 0.06
-- overscan: 0.04
-- fgScale: 0.05
-- fgZoom: 0.015
-- foregroundMaskUrl: mask.png (optional; falls back to PNG alpha)
+## Input + Motion
+- Gyroscope input uses DeviceOrientationEvent: gamma for X tilt, beta for Y tilt.
+- beta/gamma are clamped to plus/minus 45 degrees and normalized to minus 1.0 to plus 1.0.
+- Tilt smoothing uses frame lerp factor 0.08.
+- Mouse and touch fallback are active when gyroscope is unavailable, denied, or not producing signal.
 
-## Known Risks
-- Very soft hair/fur edges may need slight matte threshold relaxation on specific assets.
-- If foreground and background resolutions diverge heavily, mask erosion step size may need a dedicated foreground-resolution uniform.
-- If depth relighting appears noisy on low-quality depth maps, reduce relight gain or pre-blur depth map.
-- Extreme tilt can still reveal UV clamp/stretch at frame edges; overscan adjustment remains the first mitigation.
+## Rendering + Scaling
+- Fullscreen WebGL canvas with DPR-aware resize.
+- Base sampling uses zoomScale 1.12 to avoid edge exposure under displacement.
+- Main displacement strength is 0.048.
+- Foreground displacement strength is 0.06.
+
+## UX + Runtime
+- Added motion status text and error overlay.
+- Added permission prompt UI for mobile contexts where requestPermission is required.
 
 ## Verification
-- No VS Code diagnostics in `parallax/gyro-parallax-v2.html` after halo-fix patch.
+- VS Code diagnostics: no errors in [parallax/gyro-parallax-v2.1.html](parallax/gyro-parallax-v2.1.html).
+- Browser smoke check: page loads and reports ready state.

@@ -212,14 +212,6 @@
 
     <div class="ctrl-row">
       <div class="ctrl-label">
-        <span>Depth Strength</span>
-        <span id="val-depth">0.03</span>
-      </div>
-      <input type="range" id="sl-depth" min="0.005" max="0.08" step="0.005" value="0.03">
-    </div>
-
-    <div class="ctrl-row">
-      <div class="ctrl-label">
         <span>Smoothing</span>
         <span id="val-smooth">0.07</span>
       </div>
@@ -239,7 +231,7 @@
         <span>FG Rotate (deg)</span>
         <span id="val-fgrot">6</span>
       </div>
-      <input type="range" id="sl-fgrot" min="0" max="15" step="0.5" value="6">
+      <input type="range" id="sl-fgrot" min="0" max="90" step="0.5" value="6">
     </div>
 
     <div class="ctrl-row">
@@ -267,23 +259,19 @@ void main() {
 `;
 
     /* ─────────────────────────────────────────────────────────────
-       FRAGMENT SHADER — cover-fit + per-pixel depth warp
+       FRAGMENT SHADER — cover-fit + base translation
        
        UV pipeline:
          1. rawUv → cover-fit → imageUv  (letterbox/pillarbox map)
-         2. depth = depthMap(imageUv).r   (white = near)
-         3. baseTranslate = -tilt * baseStrength   (whole image moves)
-         4. depthOffset   = tilt * depth * depthStrength  (near pixels move more)
-         5. finalUv = imageUv + baseTranslate + depthOffset
+         2. baseTranslate = -tilt * baseStrength   (whole image moves)
+         3. finalUv = imageUv + baseTranslate
     ───────────────────────────────────────────────────────────── */
     const FRAG_SRC = `
 precision mediump float;
 
 uniform sampler2D uTexture;
-uniform sampler2D uDepthMap;
 uniform vec2      uTilt;          /* normalized -1..1 */
 uniform float     uBaseStrength;  /* ~0.06 */
-uniform float     uDepthStrength; /* ~0.03 */
 uniform vec2      uCoverScale;    /* scale to cover-fit image into canvas */
 uniform vec2      uCoverOffset;   /* offset to center cover-fit */
 
@@ -293,13 +281,8 @@ void main() {
   /* Map raw canvas UV → image UV via cover-fit transform */
   vec2 imageUv = vUv * uCoverScale + uCoverOffset;
 
-  /* Sample depth map at same image UV */
-  float depth = texture2D(uDepthMap, clamp(imageUv, 0.0, 1.0)).r;
-
-  /* Spec formula */
-  vec2 baseTranslate = -uTilt * uBaseStrength;
-  vec2 depthOffset   =  uTilt * depth * uDepthStrength;
-  vec2 finalUv       = imageUv + baseTranslate + depthOffset;
+  /* Translate whole background by tilt */
+  vec2 finalUv = imageUv + (-uTilt * uBaseStrength);
 
   gl_FragColor = texture2D(uTexture, clamp(finalUv, 0.0, 1.0));
 }
@@ -339,13 +322,11 @@ void main() {
        RENDERER — owns the WebGL context, rAF loop, tilt lerp
     ───────────────────────────────────────────────────────────── */
     class Renderer {
-      constructor(canvas, bgImage, depthImage, opts) {
-        this._canvas     = canvas;
-        this._bgImage    = bgImage;
-        this._depthImage = depthImage;
+      constructor(canvas, bgImage, opts) {
+        this._canvas  = canvas;
+        this._bgImage = bgImage;
 
         this._baseStrength  = opts.baseStrength  ?? 0.06;
-        this._depthStrength = opts.depthStrength ?? 0.03;
         this._smoothing     = opts.smoothing     ?? 0.07;
 
         this._currentTilt      = { x: 0, y: 0 };
@@ -359,7 +340,6 @@ void main() {
         this._program     = null;
         this._quadBuf     = null;
         this._bgTexture   = null;
-        this._depthTex    = null;
         this._uniforms    = {};
         this._coverUV     = null;
 
@@ -378,12 +358,6 @@ void main() {
         if (!Number.isFinite(v)) return;
         this._baseStrength = v;
         this._needsRedraw  = true;
-      }
-
-      setDepthStrength(v) {
-        if (!Number.isFinite(v)) return;
-        this._depthStrength = v;
-        this._needsRedraw   = true;
       }
 
       setSmoothing(v) {
@@ -446,22 +420,18 @@ void main() {
         gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
         /* Textures */
-        this._bgTexture = this._uploadTexture(gl, this._bgImage,    0);
-        this._depthTex  = this._uploadTexture(gl, this._depthImage, 1);
+        this._bgTexture = this._uploadTexture(gl, this._bgImage, 0);
 
         /* Uniforms */
         this._uniforms = {
           uTexture:      gl.getUniformLocation(prog, 'uTexture'),
-          uDepthMap:     gl.getUniformLocation(prog, 'uDepthMap'),
           uTilt:         gl.getUniformLocation(prog, 'uTilt'),
           uBaseStrength: gl.getUniformLocation(prog, 'uBaseStrength'),
-          uDepthStrength:gl.getUniformLocation(prog, 'uDepthStrength'),
           uCoverScale:   gl.getUniformLocation(prog, 'uCoverScale'),
           uCoverOffset:  gl.getUniformLocation(prog, 'uCoverOffset'),
         };
 
-        gl.uniform1i(this._uniforms.uTexture,  0);
-        gl.uniform1i(this._uniforms.uDepthMap, 1);
+        gl.uniform1i(this._uniforms.uTexture, 0);
 
         this._updateCoverUV();
 
@@ -536,11 +506,10 @@ void main() {
         const u  = this._uniforms;
         const cv = this._coverUV;
 
-        gl.uniform2f(u.uTilt,         cur.x, cur.y);
-        gl.uniform1f(u.uBaseStrength,  this._baseStrength);
-        gl.uniform1f(u.uDepthStrength, this._depthStrength);
-        gl.uniform2f(u.uCoverScale,    cv.scaleX,  cv.scaleY);
-        gl.uniform2f(u.uCoverOffset,   cv.offsetX, cv.offsetY);
+        gl.uniform2f(u.uTilt,        cur.x, cur.y);
+        gl.uniform1f(u.uBaseStrength, this._baseStrength);
+        gl.uniform2f(u.uCoverScale,   cv.scaleX,  cv.scaleY);
+        gl.uniform2f(u.uCoverOffset,  cv.offsetX, cv.offsetY);
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -569,7 +538,6 @@ void main() {
         if (this._program)  gl.deleteProgram(this._program);
         if (this._quadBuf)  gl.deleteBuffer(this._quadBuf);
         if (this._bgTexture) gl.deleteTexture(this._bgTexture);
-        if (this._depthTex)  gl.deleteTexture(this._depthTex);
         this._gl = null;
       }
     }
@@ -713,12 +681,9 @@ void main() {
       /* ── Boot sequence ── */
       async function boot() {
         /* Load images first */
-        let bgImage, depthImage;
+        let bgImage;
         try {
-          [bgImage, depthImage] = await Promise.all([
-            loadImage('background.png'),
-            loadImage('depth.png'),
-          ]);
+          bgImage = await loadImage('background.png');
         } catch (err) {
           console.error('[Boot] Image load failed:', err.message);
           return;
@@ -732,10 +697,9 @@ void main() {
         /* Size canvas then build renderer */
         sizeCanvas();
 
-        renderer = new Renderer(canvas, bgImage, depthImage, {
-          baseStrength:  0.06,
-          depthStrength: 0.03,
-          smoothing:     0.07,
+        renderer = new Renderer(canvas, bgImage, {
+          baseStrength: 0.06,
+          smoothing:    0.07,
         });
 
         /* Feed tilt changes to foreground */
@@ -844,7 +808,6 @@ void main() {
         }
 
         bindSlider('sl-base',  'val-base',  (v) => renderer && renderer.setBaseStrength(v));
-        bindSlider('sl-depth', 'val-depth', (v) => renderer && renderer.setDepthStrength(v));
         bindSlider('sl-smooth','val-smooth',(v) => renderer && renderer.setSmoothing(v));
         bindSlider('sl-fgtx',   'val-fgtx',   (v) => { fgTranslate = v; });
         bindSlider('sl-fgrot',  'val-fgrot',  (v) => { fgRotate = v; });

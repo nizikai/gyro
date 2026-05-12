@@ -3,24 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Gyro Parallax v4 — Continuous Pivot</title>
+  <title>Gyro Parallax v4</title>
   <style>
-    *, *::before, *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     html, body {
-      margin: 0;
-      width: 100%;
-      height: 100%;
+      width: 100%; height: 100%;
       background: #000;
       overflow: hidden;
       touch-action: none;
     }
 
-    /* ── Scene container — clips the oversized canvas ── */
     #scene {
       position: relative;
       width: 100vw;
@@ -28,8 +21,8 @@
       overflow: hidden;
     }
 
-    /* ── WebGL canvas — 130%×130%, shifted −15% so it centers ── */
-    #canvas {
+    /* Background WebGL canvas — oversized so tilt never reveals edges */
+    #bg-canvas {
       position: absolute;
       width: 140%;
       height: 140%;
@@ -39,64 +32,58 @@
       will-change: transform;
     }
 
-    /* ── iOS permission overlay ── */
+    /* Foreground image — full viewport, CSS translate only */
+    #fg {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0; left: 0;
+      object-fit: contain;
+      object-position: center;
+      will-change: transform;
+      pointer-events: none;
+    }
+
+    /* iOS permission overlay */
     #permission-overlay {
       position: absolute;
       inset: 0;
       z-index: 10;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 20px;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      color: #fff;
-      text-align: center;
-      padding: 32px;
-    }
-
-    #permission-overlay p {
-      font-size: 15px;
-      opacity: 0.75;
-      max-width: 260px;
-      line-height: 1.5;
+      background: rgba(0, 0, 0, 0.60);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
 
     #permission-btn {
-      padding: 13px 28px;
-      border: 1.5px solid rgba(255,255,255,0.5);
+      padding: 14px 30px;
+      border: 1.5px solid rgba(255,255,255,0.45);
       border-radius: 30px;
-      background: rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.10);
       color: #fff;
       font-size: 15px;
       font-weight: 600;
       letter-spacing: 0.03em;
       cursor: pointer;
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       transition: background 0.2s;
     }
 
-    #permission-btn:active {
-      background: rgba(255,255,255,0.25);
-    }
+    #permission-btn:active { background: rgba(255,255,255,0.25); }
 
-    /* ── Controls toggle ⚙ ── */
+    /* Controls toggle button */
     #controls-toggle {
       position: fixed;
-      bottom: 20px;
-      right: 20px;
+      bottom: 20px; right: 20px;
       z-index: 20;
-      width: 38px;
-      height: 38px;
+      width: 40px; height: 40px;
       border-radius: 50%;
-      border: 1px solid rgba(255,255,255,0.2);
-      background: rgba(0,0,0,0.65);
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(0, 0, 0, 0.55);
       color: #fff;
-      font-size: 17px;
+      font-size: 18px;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -106,28 +93,25 @@
       transition: background 0.2s;
     }
 
-    #controls-toggle:hover {
-      background: rgba(255,255,255,0.12);
-    }
+    #controls-toggle:hover { background: rgba(255,255,255,0.12); }
 
-    /* ── Controls panel ── */
+    /* Controls panel */
     #controls {
+      display: none;
       position: fixed;
-      bottom: 68px;
-      right: 20px;
+      bottom: 70px; right: 20px;
       z-index: 20;
       width: 240px;
-      display: none;
       flex-direction: column;
       gap: 0;
-      background: rgba(0, 0, 0, 0.60);
-      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(255,255,255,0.10);
       border-radius: 14px;
       padding: 14px 16px 16px;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
-      font-size: 11px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px;
       color: #ccc;
       user-select: none;
     }
@@ -148,22 +132,14 @@
     }
 
     #controls-close {
-      background: none;
-      border: none;
-      color: #666;
-      font-size: 15px;
-      line-height: 1;
-      cursor: pointer;
-      padding: 0;
+      background: none; border: none;
+      color: #666; font-size: 15px; line-height: 1;
+      cursor: pointer; padding: 0;
       transition: color 0.15s;
     }
-
     #controls-close:hover { color: #fff; }
 
-    .ctrl-row {
-      margin-bottom: 11px;
-    }
-
+    .ctrl-row { margin-bottom: 12px; }
     .ctrl-row:last-child { margin-bottom: 0; }
 
     .ctrl-label {
@@ -173,16 +149,13 @@
       margin-bottom: 5px;
     }
 
-    .ctrl-label .lbl-name {
-      color: #aaa;
-      font-size: 11px;
-    }
+    .ctrl-label .lbl-name { color: #aaa; font-size: 11px; }
 
     .ctrl-label .lbl-val {
       color: #fff;
       font-weight: 700;
       font-size: 11px;
-      min-width: 32px;
+      min-width: 36px;
       text-align: right;
     }
 
@@ -192,121 +165,65 @@
       cursor: pointer;
       height: 3px;
     }
-
-    .ctrl-check {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 8px;
-    }
-
-    .ctrl-check label {
-      color: #aaa;
-      font-size: 11px;
-    }
-
-    .ctrl-check input[type="checkbox"] {
-      width: 14px;
-      height: 14px;
-      accent-color: #fff;
-      cursor: pointer;
-    }
   </style>
 </head>
 <body>
 
-  <div id="scene">
-    <canvas id="canvas"></canvas>
+<div id="scene">
+  <canvas id="bg-canvas"></canvas>
+  <img id="fg" src="foreground.png" alt="">
 
-    <!-- iOS 13+ motion permission overlay -->
-    <div id="permission-overlay">
-      <p>Motion access is needed to drive the parallax effect.</p>
-      <button id="permission-btn">Tap to Enable Motion</button>
-    </div>
+  <div id="permission-overlay">
+    <button id="permission-btn">Tap to Enable Motion</button>
+  </div>
+</div>
+
+<button id="controls-toggle" title="Settings">⚙</button>
+
+<div id="controls">
+  <div id="controls-header">
+    <span>Parallax Controls</span>
+    <button id="controls-close" title="Close">✕</button>
   </div>
 
-  <!-- Controls toggle button -->
-  <button id="controls-toggle" title="Settings">⚙</button>
-
-  <!-- Controls panel -->
-  <div id="controls">
-    <div id="controls-header">
-      <span>Parallax Controls</span>
-      <button id="controls-close" title="Close">✕</button>
+  <div class="ctrl-row">
+    <div class="ctrl-label">
+      <span class="lbl-name">BG Strength</span>
+      <span class="lbl-val" id="val-strength">0.03</span>
     </div>
-
-    <!-- Strength -->
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span class="lbl-name">Strength</span>
-        <span class="lbl-val" id="val-strength">0.025</span>
-      </div>
-      <input type="range" id="sl-strength" min="0.01" max="0.06" step="0.001" value="0.025">
-    </div>
-
-    <!-- Pivot Depth -->
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span class="lbl-name">Pivot Depth</span>
-        <span class="lbl-val" id="val-pivot">0.75</span>
-      </div>
-      <input type="range" id="sl-pivot" min="0.0" max="1.0" step="0.001" value="0.75">
-    </div>
-
-    <!-- Smoothing -->
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span class="lbl-name">Smoothing</span>
-        <span class="lbl-val" id="val-smoothing">0.06</span>
-      </div>
-      <input type="range" id="sl-smoothing" min="0.01" max="0.30" step="0.01" value="0.06">
-    </div>
-
-    <!-- Depth Influence -->
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span class="lbl-name">Depth Influence</span>
-        <span class="lbl-val" id="val-influence">1.20</span>
-      </div>
-      <input type="range" id="sl-influence" min="0.5" max="2.0" step="0.05" value="1.2">
-    </div>
-
-    <!-- Depth Blur Radius -->
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span class="lbl-name">Depth Blur</span>
-        <span class="lbl-val" id="val-blur">0.008</span>
-      </div>
-      <input type="range" id="sl-blur" min="0.002" max="0.015" step="0.0005" value="0.008">
-    </div>
-
-    <!-- Depth Rotation in Degrees -->
-    <div class="ctrl-row">
-      <div class="ctrl-label">
-        <span class="lbl-name">Depth Rotation°</span>
-        <span class="lbl-val" id="val-rotate">1.2</span>
-      </div>
-      <input type="range" id="sl-rotate" min="0.0" max="4.0" step="0.1" value="1.2">
-    </div>
-
-    <div class="ctrl-check">
-      <label for="chk-invert">Invert Depth Map</label>
-      <input type="checkbox" id="chk-invert">
-    </div>
-
-    <div class="ctrl-check">
-      <label for="chk-show-depth">Show Depth Map</label>
-      <input type="checkbox" id="chk-show-depth">
-    </div>
+    <input type="range" id="sl-strength" min="0.01" max="0.08" step="0.001" value="0.03">
   </div>
 
-  <script>
-    'use strict';
+  <div class="ctrl-row">
+    <div class="ctrl-label">
+      <span class="lbl-name">FG Strength</span>
+      <span class="lbl-val" id="val-fg">8</span>
+    </div>
+    <input type="range" id="sl-fg" min="0" max="25" step="0.5" value="8">
+  </div>
 
-    /* ─────────────────────────────────────────────
-       GLSL source strings
-    ───────────────────────────────────────────── */
-    const VERT_SRC = `
+  <div class="ctrl-row">
+    <div class="ctrl-label">
+      <span class="lbl-name">Smoothing</span>
+      <span class="lbl-val" id="val-smoothing">0.06</span>
+    </div>
+    <input type="range" id="sl-smoothing" min="0.02" max="0.15" step="0.01" value="0.06">
+  </div>
+
+  <div class="ctrl-row">
+    <div class="ctrl-label">
+      <span class="lbl-name">Depth Blur</span>
+      <span class="lbl-val" id="val-blur">0.006</span>
+    </div>
+    <input type="range" id="sl-blur" min="0.002" max="0.015" step="0.0005" value="0.006">
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ── GLSL ── */
+const VERT_SRC = `
 attribute vec2 aPosition;
 varying vec2 vUv;
 void main() {
@@ -315,392 +232,293 @@ void main() {
 }
 `;
 
-    const FRAG_SRC = `
+const FRAG_SRC = `
 precision mediump float;
 
 uniform sampler2D uImage;
 uniform sampler2D uDepthMap;
-uniform vec2 uTilt;
+uniform vec2  uTilt;
 uniform float uStrength;
-uniform float uPivotDepth;
-uniform float uDepthInfluence;
 uniform float uDepthBlur;
-uniform float uDepthInvert;
-uniform float uShowDepth;
-uniform float uRotateDeg;
-uniform vec2 uCoverScale;
-uniform vec2 uCoverOffset;
+uniform float uCoverScale;
+uniform vec2  uCoverOffset;
 
 varying vec2 vUv;
 
 void main() {
-  // Cover fit
-  vec2 coverUV = vUv * uCoverScale + uCoverOffset;
+  // Cover-fit UV: (vUv - 0.5) * scale + 0.5 + offset
+  vec2 coverUV = (vUv - 0.5) * uCoverScale + 0.5 + uCoverOffset;
 
-  // 9-tap depth blur with tunable radius to reduce edge tearing
+  // 9-tap weighted depth blur to soften hard edges
   float b = uDepthBlur;
   float depth = 0.0;
-  depth += texture2D(uDepthMap, coverUV).r * 4.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( b, 0.0)).r * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(-b, 0.0)).r * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(0.0,  b)).r * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(0.0, -b)).r * 2.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( b,  b)).r * 1.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(-b,  b)).r * 1.0;
-  depth += texture2D(uDepthMap, coverUV + vec2( b, -b)).r * 1.0;
-  depth += texture2D(uDepthMap, coverUV + vec2(-b, -b)).r * 1.0;
+  depth += texture2D(uDepthMap, coverUV).r                          * 4.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b,  0.0)).r        * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b,  0.0)).r        * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( 0.0,  b)).r        * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( 0.0, -b)).r        * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b,  b)).r          * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b,  b)).r          * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b, -b)).r          * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b, -b)).r          * 1.0;
   depth /= 16.0;
 
-  // Optional depth inversion for opposite-encoded depth maps
-  depth = mix(depth, 1.0 - depth, uDepthInvert);
+  // Far pixels (dark=0) move more; near pixels (bright=1) move less
+  float depthInfluence = 1.0 - depth;
+  vec2 displacement = -uTilt * uStrength * depthInfluence;
 
-  // Parallax pivot model:
-  // behind pivot -> same direction as tilt, in front -> opposite, pivot -> locked
-  float relative = (uPivotDepth - depth) * uDepthInfluence;
-  relative = clamp(relative, -0.22, 0.22);
+  vec2 finalUV = coverUV + displacement;
 
-  // Add depth-based rotation in degrees around frame center
-  float rotAxis = (uTilt.x * 0.8 + uTilt.y * 0.3);
-  float angle = radians(uRotateDeg) * rotAxis * relative;
-  float c = cos(angle);
-  float s = sin(angle);
-  vec2 centered = coverUV - vec2(0.5);
-  vec2 rotatedUV = vec2(
-    c * centered.x - s * centered.y,
-    s * centered.x + c * centered.y
-  ) + vec2(0.5);
-
-  // Translation parallax (hard-capped)
-  vec2 disp = uTilt * uStrength * relative;
-  disp = clamp(disp, vec2(-0.02), vec2(0.02));
-
-  // Sample image with displacement
-  vec2 finalUV = rotatedUV + disp;
-
-  // Soft edge fallback — never reveals canvas background
+  // Soft edge fallback — never reveals canvas background colour
   vec2 edge = min(finalUV, 1.0 - finalUV);
-  float fade = smoothstep(0.0, 0.03, min(edge.x, edge.y));
+  float fade = smoothstep(0.0, 0.025, min(edge.x, edge.y));
   finalUV = mix(coverUV, finalUV, fade);
 
-  vec3 color = texture2D(uImage, finalUV).rgb;
-  if (uShowDepth > 0.5) {
-    color = mix(color, vec3(depth), 0.5);
-  }
-  gl_FragColor = vec4(color, 1.0);
+  gl_FragColor = vec4(texture2D(uImage, finalUV).rgb, 1.0);
 }
 `;
 
-    /* ─────────────────────────────────────────────
-       State
-    ───────────────────────────────────────────── */
-    const config = {
-      strength:       0.025,
-      pivotDepth:     0.75,
-      smoothing:      0.06,
-      depthInfluence: 1.2,
-      depthBlur:      0.008,
-      depthInvert:    0.0,
-      showDepth:      0.0,
-      rotateDeg:      1.2
-    };
+/* ── Config ── */
+const config = {
+  bgStrength: 0.03,
+  fgStrength: 8,
+  smoothing:  0.06,
+  depthBlur:  0.006
+};
 
-    const currentTilt = { x: 0, y: 0 };
-    const targetTilt  = { x: 0, y: 0 };
+/* ── Tilt state ── */
+const current = { x: 0, y: 0 };
+const target  = { x: 0, y: 0 };
+let gyroActive  = false;
+let neutralBeta = null;
+let needsRedraw = true;
 
-    let needsRedraw = true;
-    let gyroActive  = false;
-    let neutralBeta = null;
+/* ── DOM refs ── */
+const canvas = document.getElementById('bg-canvas');
+const fg     = document.getElementById('fg');
 
-    /* ─────────────────────────────────────────────
-       WebGL bootstrap
-    ───────────────────────────────────────────── */
-    const canvas = document.getElementById('canvas');
-    const gl = canvas.getContext('webgl', {
-      alpha: false,
-      premultipliedAlpha: false,
-      antialias: false,
-      preserveDrawingBuffer: false
-    });
+/* ── WebGL init ── */
+const gl = canvas.getContext('webgl', {
+  alpha: false,
+  premultipliedAlpha: false,
+  antialias: false,
+  preserveDrawingBuffer: false
+});
 
-    if (!gl) {
-      document.body.innerHTML = '<p style="color:#fff;padding:24px">WebGL not supported on this device.</p>';
-      throw new Error('WebGL unavailable');
-    }
+if (!gl) {
+  document.body.innerHTML = '<p style="color:#fff;padding:24px">WebGL not supported.</p>';
+  throw new Error('WebGL unavailable');
+}
 
-    // ── Compile a shader ──
-    function compileShader(type, src) {
-      const shader = gl.createShader(type);
-      gl.shaderSource(shader, src);
-      gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const log = gl.getShaderInfoLog(shader);
-        gl.deleteShader(shader);
-        throw new Error('Shader compile error:\n' + log);
+function compileShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s);
+    gl.deleteShader(s);
+    throw new Error('Shader compile error:\n' + log);
+  }
+  return s;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, compileShader(gl.VERTEX_SHADER,   VERT_SRC));
+gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, FRAG_SRC));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+  throw new Error('Program link error:\n' + gl.getProgramInfoLog(prog));
+}
+gl.useProgram(prog);
+
+/* ── Uniforms ── */
+const uTiltLoc        = gl.getUniformLocation(prog, 'uTilt');
+const uStrengthLoc    = gl.getUniformLocation(prog, 'uStrength');
+const uDepthBlurLoc   = gl.getUniformLocation(prog, 'uDepthBlur');
+const uCoverScaleLoc  = gl.getUniformLocation(prog, 'uCoverScale');
+const uCoverOffsetLoc = gl.getUniformLocation(prog, 'uCoverOffset');
+const uImageLoc       = gl.getUniformLocation(prog, 'uImage');
+const uDepthMapLoc    = gl.getUniformLocation(prog, 'uDepthMap');
+
+gl.uniform1i(uImageLoc,    0);   // background → TEXTURE0
+gl.uniform1i(uDepthMapLoc, 1);   // depth map  → TEXTURE1
+gl.uniform2f(uTiltLoc, 0, 0);
+gl.uniform1f(uStrengthLoc,   config.bgStrength);
+gl.uniform1f(uDepthBlurLoc,  config.depthBlur);
+gl.uniform1f(uCoverScaleLoc, 1.0);
+gl.uniform2f(uCoverOffsetLoc, 0, 0);
+
+/* ── Fullscreen quad ── */
+const quadVerts = new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]);
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'aPosition');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+/* ── Texture loader ── */
+let imgW = 1, imgH = 1;
+let texturesReady = 0;
+
+function loadTexture(url, unit, cb) {
+  const tex = gl.createTexture();
+  const img = new Image();
+  img.onload = () => {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    if (cb) cb(img.naturalWidth, img.naturalHeight);
+  };
+  img.onerror = () => console.error('Failed to load:', url);
+  img.src = url;
+}
+
+// Set flip once before BOTH uploads so orientations match
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+function onTextureLoaded() {
+  texturesReady++;
+  if (texturesReady === 2) {
+    initCanvas();
+    requestAnimationFrame(loop);
+  }
+}
+
+loadTexture('background.png', 0, (w, h) => {
+  imgW = w; imgH = h;
+  onTextureLoaded();
+});
+loadTexture('depth.png', 1, () => {
+  onTextureLoaded();
+});
+
+/* ── Cover UV ── */
+function computeCoverUV(iw, ih, cw, ch) {
+  const imgAspect    = iw / ih;
+  const canvasAspect = cw / ch;
+  let scale, offsetX, offsetY;
+  if (canvasAspect > imgAspect) {
+    scale   = canvasAspect / imgAspect;
+    offsetX = 0;
+    offsetY = (1.0 - 1.0 / scale) / 2.0;
+  } else {
+    scale   = imgAspect / canvasAspect;
+    offsetX = (1.0 - 1.0 / scale) / 2.0;
+    offsetY = 0;
+  }
+  return { scale, offsetX, offsetY };
+}
+
+function initCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = canvas.offsetWidth  * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  const { scale, offsetX, offsetY } = computeCoverUV(imgW, imgH, canvas.width, canvas.height);
+  gl.uniform1f(uCoverScaleLoc,  scale);
+  gl.uniform2f(uCoverOffsetLoc, offsetX, offsetY);
+}
+
+window.addEventListener('resize', () => {
+  if (texturesReady < 2) return;
+  initCanvas();
+  needsRedraw = true;
+});
+
+/* ── Gyro input ── */
+function startGyro() {
+  window.addEventListener('deviceorientation', (e) => {
+    if (!e.gamma && !e.beta) return;
+    if (neutralBeta === null) neutralBeta = e.beta;
+    gyroActive = true;
+    target.x = Math.max(-1, Math.min(1, e.gamma / 40));
+    target.y = Math.max(-1, Math.min(1, (e.beta - neutralBeta) / 40));
+  });
+}
+
+if (typeof DeviceOrientationEvent !== 'undefined' &&
+    typeof DeviceOrientationEvent.requestPermission === 'function') {
+  // iOS 13+ — show permission overlay
+  document.getElementById('permission-overlay').style.display = 'flex';
+  document.getElementById('permission-btn').addEventListener('click', () => {
+    DeviceOrientationEvent.requestPermission().then(state => {
+      if (state === 'granted') {
+        document.getElementById('permission-overlay').style.display = 'none';
+        startGyro();
       }
-      return shader;
-    }
+    }).catch(err => console.warn('DeviceOrientation permission error:', err));
+  });
+} else {
+  document.getElementById('permission-overlay').style.display = 'none';
+  startGyro();
+}
 
-    // ── Link program ──
-    const vert = compileShader(gl.VERTEX_SHADER,   VERT_SRC);
-    const frag = compileShader(gl.FRAGMENT_SHADER, FRAG_SRC);
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vert);
-    gl.attachShader(prog, frag);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      throw new Error('Program link error:\n' + gl.getProgramInfoLog(prog));
-    }
-    gl.useProgram(prog);
-
-    // ── Uniform locations ──
-    const uTiltLoc           = gl.getUniformLocation(prog, 'uTilt');
-    const uStrengthLoc       = gl.getUniformLocation(prog, 'uStrength');
-    const uPivotDepthLoc     = gl.getUniformLocation(prog, 'uPivotDepth');
-    const uDepthInfluenceLoc = gl.getUniformLocation(prog, 'uDepthInfluence');
-    const uDepthBlurLoc      = gl.getUniformLocation(prog, 'uDepthBlur');
-    const uDepthInvertLoc    = gl.getUniformLocation(prog, 'uDepthInvert');
-    const uShowDepthLoc      = gl.getUniformLocation(prog, 'uShowDepth');
-    const uRotateDegLoc      = gl.getUniformLocation(prog, 'uRotateDeg');
-    const uCoverScaleLoc     = gl.getUniformLocation(prog, 'uCoverScale');
-    const uCoverOffsetLoc    = gl.getUniformLocation(prog, 'uCoverOffset');
-    const uImageLoc          = gl.getUniformLocation(prog, 'uImage');
-    const uDepthMapLoc       = gl.getUniformLocation(prog, 'uDepthMap');
-
-    // Assign texture units (constant, set once)
-    gl.uniform1i(uImageLoc,    0);  // TEXTURE0
-    gl.uniform1i(uDepthMapLoc, 1);  // TEXTURE1
-
-    // Initialize uniforms with defaults so the first frame is valid
-    gl.uniform1f(uStrengthLoc,       config.strength);
-    gl.uniform1f(uPivotDepthLoc,     config.pivotDepth);
-    gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
-    gl.uniform1f(uDepthBlurLoc,      config.depthBlur);
-    gl.uniform1f(uDepthInvertLoc,    config.depthInvert);
-    gl.uniform1f(uShowDepthLoc,      config.showDepth);
-    gl.uniform1f(uRotateDegLoc,      config.rotateDeg);
-    gl.uniform2f(uTiltLoc, 0, 0);
-    gl.uniform2f(uCoverScaleLoc,  1, 1);
-    gl.uniform2f(uCoverOffsetLoc, 0, 0);
-
-    // ── Fullscreen quad (two triangles covering clip −1..+1) ──
-    const verts = new Float32Array([
-      -1, -1,   1, -1,  -1,  1,
-      -1,  1,   1, -1,   1,  1,
-    ]);
-    const vbo = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-
-    const aPositionLoc = gl.getAttribLocation(prog, 'aPosition');
-    gl.enableVertexAttribArray(aPositionLoc);
-    gl.vertexAttribPointer(aPositionLoc, 2, gl.FLOAT, false, 0, 0);
-
-    /* ─────────────────────────────────────────────
-       Texture loading
-    ───────────────────────────────────────────── */
-    let imageW = 1, imageH = 1;
-    let texturesReady = 0;
-
-    function loadTexture(gl, url, unit, callback) {
-      const tex = gl.createTexture();
-      const img = new Image();
-      img.onload = () => {
-        gl.activeTexture(gl.TEXTURE0 + unit);
-        gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        if (callback) callback(img.naturalWidth, img.naturalHeight);
-      };
-      img.onerror = () => console.error('Failed to load ' + url);
-      img.src = url;
-      return tex;
-    }
-
-    function onTextureLoaded() {
-      texturesReady++;
-      if (texturesReady === 2) {
-        initCanvas();
-        needsRedraw = true;
-        requestAnimationFrame(loop);
-      }
-    }
-
-    // Flip Y once before any texture upload; both textures must share orientation
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-
-    // Load image texture on unit 0
-    loadTexture(gl, 'input.jpeg', 0, (w, h) => {
-      imageW = w;
-      imageH = h;
-      onTextureLoaded();
+// Mouse fallback — activates if no gyro fires within 2 s
+setTimeout(() => {
+  if (!gyroActive) {
+    window.addEventListener('mousemove', e => {
+      target.x = (e.clientX / window.innerWidth  - 0.5) * 2;
+      target.y = (e.clientY / window.innerHeight - 0.5) * 2;
     });
+  }
+}, 2000);
 
-    // Load depth texture on unit 1
-    loadTexture(gl, 'depth.png', 1, () => {
-      onTextureLoaded();
-    });
+/* ── rAF loop ── */
+function loop() {
+  requestAnimationFrame(loop);
 
-    /* ─────────────────────────────────────────────
-       Cover-fit UV computation
-    ───────────────────────────────────────────── */
-    function computeCoverUV(imgW, imgH, canvasW, canvasH) {
-      const ia = imgW / imgH;
-      const ca = canvasW / canvasH;
-      let sx, sy, ox, oy;
-      if (ca > ia) {
-        sx = 1.0; sy = ia / ca;
-        ox = 0.0; oy = (1.0 - sy) / 2.0;
-      } else {
-        sx = ca / ia; sy = 1.0;
-        ox = (1.0 - sx) / 2.0; oy = 0.0;
-      }
-      return [sx, sy, ox, oy];
-    }
+  current.x += (target.x - current.x) * config.smoothing;
+  current.y += (target.y - current.y) * config.smoothing;
 
-    function initCanvas() {
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width  = canvas.offsetWidth  * dpr;
-      canvas.height = canvas.offsetHeight * dpr;
-      gl.viewport(0, 0, canvas.width, canvas.height);
+  const dx = Math.abs(target.x - current.x);
+  const dy = Math.abs(target.y - current.y);
+  if (dx < 0.0005 && dy < 0.0005 && !needsRedraw) return;
+  needsRedraw = false;
 
-      const [sx, sy, ox, oy] = computeCoverUV(imageW, imageH, canvas.width, canvas.height);
-      gl.uniform2f(uCoverScaleLoc,  sx, sy);
-      gl.uniform2f(uCoverOffsetLoc, ox, oy);
-    }
+  // Background — WebGL
+  gl.uniform2f(uTiltLoc,       current.x, current.y);
+  gl.uniform1f(uStrengthLoc,   config.bgStrength);
+  gl.uniform1f(uDepthBlurLoc,  config.depthBlur);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    /* ─────────────────────────────────────────────
-       Resize handler
-    ───────────────────────────────────────────── */
-    window.addEventListener('resize', () => {
-      if (texturesReady < 2) return;
-      initCanvas();
-      needsRedraw = true;
-    });
+  // Foreground — CSS translate only, same direction, less movement
+  fg.style.transform =
+    `translate(${current.x * -config.fgStrength}px, ${current.y * -config.fgStrength}px)`;
+}
 
-    /* ─────────────────────────────────────────────
-       Gyroscope & mouse input
-    ───────────────────────────────────────────── */
-    function startGyro() {
-      window.addEventListener('deviceorientation', (e) => {
-        if (neutralBeta === null) neutralBeta = e.beta; // calibrate to starting position
+/* ── Controls panel ── */
+const controlsEl = document.getElementById('controls');
 
-        gyroActive = true;
+document.getElementById('controls-toggle').addEventListener('click', () => {
+  controlsEl.style.display = controlsEl.style.display === 'flex' ? 'none' : 'flex';
+});
 
-        const rawX = e.gamma;              // left/right tilt, degrees
-        const rawY = e.beta - neutralBeta; // forward/back relative to start
+document.getElementById('controls-close').addEventListener('click', () => {
+  controlsEl.style.display = 'none';
+});
 
-        targetTilt.x = Math.max(-1, Math.min(1, rawX / 40));
-        targetTilt.y = Math.max(-1, Math.min(1, rawY / 40));
-      });
-    }
+function wireSlider(sliderId, valId, configKey, decimals) {
+  const slider = document.getElementById(sliderId);
+  const valEl  = document.getElementById(valId);
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    config[configKey] = v;
+    valEl.textContent = v.toFixed(decimals);
+    needsRedraw = true;
+  });
+}
 
-    // iOS 13+ requires explicit permission
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      document.getElementById('permission-overlay').style.display = 'flex';
-      document.getElementById('permission-btn').addEventListener('click', () => {
-        DeviceOrientationEvent.requestPermission().then(state => {
-          if (state === 'granted') {
-            document.getElementById('permission-overlay').style.display = 'none';
-            startGyro();
-          }
-        }).catch(err => {
-          console.warn('DeviceOrientation permission error:', err);
-        });
-      });
-    } else {
-      // Android or desktop — no permission gate needed
-      document.getElementById('permission-overlay').style.display = 'none';
-      startGyro();
-    }
+wireSlider('sl-strength', 'val-strength', 'bgStrength', 3);
+wireSlider('sl-fg',       'val-fg',       'fgStrength', 1);
+wireSlider('sl-smoothing','val-smoothing','smoothing',   2);
+wireSlider('sl-blur',     'val-blur',     'depthBlur',   3);
 
-    // Mouse fallback — activates only if no gyro event fires within 2 s
-    setTimeout(() => {
-      if (!gyroActive) {
-        window.addEventListener('mousemove', (e) => {
-          targetTilt.x = (e.clientX / window.innerWidth  - 0.5) * 2;
-          targetTilt.y = (e.clientY / window.innerHeight - 0.5) * 2;
-        });
-      }
-    }, 2000);
-
-    /* ─────────────────────────────────────────────
-       rAF render loop
-    ───────────────────────────────────────────── */
-    function loop() {
-      requestAnimationFrame(loop);
-
-      // Smooth lerp toward target tilt
-      currentTilt.x += (targetTilt.x - currentTilt.x) * config.smoothing;
-      currentTilt.y += (targetTilt.y - currentTilt.y) * config.smoothing;
-
-      // Idle skip — bail if nothing is meaningfully moving
-      const dx = Math.abs(targetTilt.x - currentTilt.x);
-      const dy = Math.abs(targetTilt.y - currentTilt.y);
-      if (dx < 0.0005 && dy < 0.0005 && !needsRedraw) return;
-      needsRedraw = false;
-
-      // Upload per-frame uniforms
-      gl.uniform2f(uTiltLoc, currentTilt.x, currentTilt.y);
-      gl.uniform1f(uStrengthLoc,   config.strength);
-      gl.uniform1f(uPivotDepthLoc, config.pivotDepth);
-      gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
-      gl.uniform1f(uDepthBlurLoc,  config.depthBlur);
-      gl.uniform1f(uDepthInvertLoc, config.depthInvert);
-      gl.uniform1f(uShowDepthLoc, config.showDepth);
-      gl.uniform1f(uRotateDegLoc, config.rotateDeg);
-
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-    }
-
-    /* ─────────────────────────────────────────────
-       Controls panel wiring
-    ───────────────────────────────────────────── */
-    const controlsEl = document.getElementById('controls');
-    const toggleBtn  = document.getElementById('controls-toggle');
-    const closeBtn   = document.getElementById('controls-close');
-
-    toggleBtn.addEventListener('click', () => {
-      const visible = controlsEl.style.display === 'flex';
-      controlsEl.style.display = visible ? 'none' : 'flex';
-    });
-
-    closeBtn.addEventListener('click', () => {
-      controlsEl.style.display = 'none';
-    });
-
-    function wireSlider(sliderId, valId, configKey, decimals) {
-      const slider = document.getElementById(sliderId);
-      const valEl  = document.getElementById(valId);
-      slider.addEventListener('input', () => {
-        const v = parseFloat(slider.value);
-        config[configKey] = v;
-        valEl.textContent = v.toFixed(decimals);
-        needsRedraw = true;
-      });
-    }
-
-    function wireCheckbox(boxId, configKey) {
-      const box = document.getElementById(boxId);
-      box.addEventListener('change', () => {
-        config[configKey] = box.checked ? 1.0 : 0.0;
-        needsRedraw = true;
-      });
-    }
-
-    wireSlider('sl-strength',  'val-strength',  'strength',       3);
-    wireSlider('sl-pivot',     'val-pivot',      'pivotDepth',     2);
-    wireSlider('sl-smoothing', 'val-smoothing',  'smoothing',      2);
-    wireSlider('sl-influence', 'val-influence',  'depthInfluence', 2);
-    wireSlider('sl-blur',      'val-blur',       'depthBlur',      3);
-    wireSlider('sl-rotate',    'val-rotate',     'rotateDeg',      1);
-    wireCheckbox('chk-invert', 'depthInvert');
-    wireCheckbox('chk-show-depth', 'showDepth');
-
-  </script>
-
+</script>
 </body>
 </html>

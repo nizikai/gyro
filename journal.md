@@ -1,12 +1,12 @@
 # Journal
 
 ## Current State (2026-05-12)
-- Main work: [parallax/gyro-parallax-v4.html](parallax/gyro-parallax-v4.html) WebGL core rewritten (shader + texture pipeline) while keeping existing HTML layout, controls UI, and gyro/mouse input flow.
-- Vertex UV uses direct clip-to-UV mapping: `vUv = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * 0.5 + 0.5)`.
-- Texture orientation is unified for both image/depth via one global `gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)` before uploads.
-- Texture unit mapping is stable: image on unit 0, depth map on unit 1.
-- Fragment shader now uses 5-tap depth averaging, pivot-relative displacement clamp, displacement cap, and soft edge fallback with opaque output alpha.
-- Cover-fit UV uses image natural dimensions vs canvas pixel dimensions (`canvas.width/height` after DPR resize) and is recalculated on resize.
+- Main work: [parallax/gyro-parallax-v4.html](parallax/gyro-parallax-v4.html) WebGL core stabilized for mobile output.
+- Vertex UV remains direct clip-to-UV mapping; texture orientation kept aligned for image+depth with one global UNPACK Y-flip before uploads.
+- Fragment shader updated to edge-aware depth smoothing and edge-damped displacement to reduce silhouette overlap/tearing at large tilt.
+- Pivot behavior now uses `relative = (uPivotDepth - depth) * uDepthInfluence` so: behind pivot moves with tilt, in front moves against tilt, pivot stays locked.
+- Displacement is hard-capped to prevent runaway warping under extreme slider values.
+- Cover-fit UV still computed from image natural size vs canvas pixel size (post-DPR resize).
 - Current control defaults in v4: Strength 0.03 (max 0.08), Pivot Depth 0.5, Smoothing 0.06.
 
 ## Verification

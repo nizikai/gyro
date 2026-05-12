@@ -276,6 +276,7 @@ uniform sampler2D uDepthMap;
 uniform vec2 uTilt;
 uniform float uStrength;
 uniform float uPivotDepth;
+uniform float uDepthInfluence;
 uniform vec2 uCoverScale;
 uniform vec2 uCoverOffset;
 
@@ -285,19 +286,32 @@ void main() {
   // Cover fit
   vec2 coverUV = vUv * uCoverScale + uCoverOffset;
 
-  // Sample depth at 5 points and average — softens hard edges in depth map
-  float b = 0.005;
-  float depth =
-    texture2D(uDepthMap, coverUV).r * 2.0 +
-    texture2D(uDepthMap, coverUV + vec2( b, 0.0)).r +
-    texture2D(uDepthMap, coverUV + vec2(-b, 0.0)).r +
-    texture2D(uDepthMap, coverUV + vec2(0.0,  b)).r +
-    texture2D(uDepthMap, coverUV + vec2(0.0, -b)).r;
-  depth /= 6.0;
+  // Depth taps around current UV
+  float b = 0.004;
+  float dC = texture2D(uDepthMap, coverUV).r;
+  float dR = texture2D(uDepthMap, coverUV + vec2( b, 0.0)).r;
+  float dL = texture2D(uDepthMap, coverUV + vec2(-b, 0.0)).r;
+  float dU = texture2D(uDepthMap, coverUV + vec2(0.0,  b)).r;
+  float dD = texture2D(uDepthMap, coverUV + vec2(0.0, -b)).r;
 
-  // Pivot-relative displacement
-  float relative = clamp(depth - uPivotDepth, -0.35, 0.35);
-  vec2 disp = clamp(uTilt * uStrength * relative, vec2(-0.04), vec2(0.04));
+  // Edge-aware blur: smooth flat areas, preserve depth boundaries
+  float wR = 1.0 - smoothstep(0.03, 0.14, abs(dR - dC));
+  float wL = 1.0 - smoothstep(0.03, 0.14, abs(dL - dC));
+  float wU = 1.0 - smoothstep(0.03, 0.14, abs(dU - dC));
+  float wD = 1.0 - smoothstep(0.03, 0.14, abs(dD - dC));
+  float depth = (dC * 2.0 + dR * wR + dL * wL + dU * wU + dD * wD) /
+                (2.0 + wR + wL + wU + wD);
+
+  // Parallax pivot model:
+  // behind pivot -> same direction as tilt, in front -> opposite, pivot -> locked
+  float relative = (uPivotDepth - depth) * uDepthInfluence;
+  relative = clamp(relative, -0.25, 0.25);
+
+  // Damp displacement near hard depth transitions to avoid silhouette splitting
+  float grad = max(abs(dR - dL), abs(dU - dD));
+  float edgeDamp = 1.0 - smoothstep(0.05, 0.20, grad);
+  vec2 disp = uTilt * uStrength * relative * edgeDamp;
+  disp = clamp(disp, vec2(-0.025), vec2(0.025));
 
   // Sample image with displacement
   vec2 finalUV = coverUV + disp;
@@ -373,6 +387,7 @@ void main() {
     const uTiltLoc           = gl.getUniformLocation(prog, 'uTilt');
     const uStrengthLoc       = gl.getUniformLocation(prog, 'uStrength');
     const uPivotDepthLoc     = gl.getUniformLocation(prog, 'uPivotDepth');
+    const uDepthInfluenceLoc = gl.getUniformLocation(prog, 'uDepthInfluence');
     const uCoverScaleLoc     = gl.getUniformLocation(prog, 'uCoverScale');
     const uCoverOffsetLoc    = gl.getUniformLocation(prog, 'uCoverOffset');
     const uImageLoc          = gl.getUniformLocation(prog, 'uImage');
@@ -385,6 +400,7 @@ void main() {
     // Initialize uniforms with defaults so the first frame is valid
     gl.uniform1f(uStrengthLoc,       config.strength);
     gl.uniform1f(uPivotDepthLoc,     config.pivotDepth);
+    gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
     gl.uniform2f(uTiltLoc, 0, 0);
     gl.uniform2f(uCoverScaleLoc,  1, 1);
     gl.uniform2f(uCoverOffsetLoc, 0, 0);
@@ -554,6 +570,7 @@ void main() {
       gl.uniform2f(uTiltLoc, currentTilt.x, currentTilt.y);
       gl.uniform1f(uStrengthLoc,   config.strength);
       gl.uniform1f(uPivotDepthLoc, config.pivotDepth);
+      gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }

@@ -802,7 +802,7 @@ void main() {
       /* ── Tilt processing: 0.5× vertical + max clamp ── */
       function processTilt(tilt) {
         const sx = tilt.x;
-        const sy = tilt.y * 0.25; /* vertical axis is quarter as sensitive */
+        const sy = tilt.y * 0.35; /* vertical axis is quarter as sensitive */
         return {
           x: Math.max(-maxTilt, Math.min(maxTilt, sx)),
           y: Math.max(-maxTilt, Math.min(maxTilt, sy)),
@@ -833,10 +833,10 @@ void main() {
       /* ── Foreground CSS 3D transform ── */
       function applyForegroundTransform(tilt) {
         fgImg.style.transform =
-          `translate(calc(-50% + ${tilt.x * -fgTranslate}px), calc(-50% + ${tilt.y * -fgTranslate}px)) ` +
+          `translate(calc(-50% + ${tilt.x * -fgTranslate}px), calc(-50% + ${tilt.y * fgTranslate}px)) ` +
           `perspective(800px) ` +
           `rotateY(${tilt.x * fgRotate}deg) ` +
-          `rotateX(${tilt.y * -fgRotate}deg) ` +
+          `rotateX(${tilt.y * fgRotate}deg) ` +
           `scale(${fgScale})`;
       }
 

@@ -1,0 +1,975 @@
+<!-- depth and mask no longer used -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Gyro Depth Parallax v3</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    /* ── Scene container — clips the oversized canvas ── */
+    #scene {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── Background WebGL canvas — 120% × 120%, centered ── */
+    #bg-canvas {
+      position: absolute;
+      width: 120%;
+      height: 120%;
+      top: -10%;
+      left: -10%;
+      display: block;
+    }
+
+    /* ── Foreground subject ── */
+    #foreground {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      /* baseline centering — JS overrides transform each frame */
+      transform: translate(-50%, -50%);
+      max-width: 100%;
+      max-height: 100%;
+      /* No will-change here: pre-creating a GPU layer causes alpha
+         compositing artifacts (faint halo) on Safari/WebKit.
+         The browser promotes it to a layer automatically when a
+         3D transform is actively applied. */
+      pointer-events: none;
+      display: none; /* shown once loaded */
+    }
+
+    /* ── iOS permission overlay ── */
+    #permission-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.82);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 200;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #fff;
+      text-align: center;
+      padding: 32px;
+    }
+
+    #permission-overlay p {
+      font-size: 16px;
+      opacity: 0.8;
+      max-width: 280px;
+      line-height: 1.5;
+    }
+
+    #permission-btn {
+      background: #fff;
+      color: #000;
+      border: none;
+      border-radius: 24px;
+      padding: 14px 32px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+    }
+
+    #permission-btn:active {
+      opacity: 0.85;
+    }
+
+    /* ── Controls panel ── */
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 250px;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 14px 16px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 100;
+      font: 11px/1.5 monospace;
+      color: #ccc;
+      user-select: none;
+    }
+
+    #controls-toggle {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      z-index: 101;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    #controls h3 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #fff;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #controls h3 button {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+
+    #controls h3 button:hover { color: #fff; }
+
+    .ctrl-row {
+      margin-bottom: 10px;
+    }
+
+    .ctrl-row:last-child { margin-bottom: 0; }
+
+    .ctrl-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 3px;
+    }
+
+    .ctrl-label span:first-child { color: #aaa; }
+    .ctrl-label span:last-child  { color: #fff; font-weight: 600; }
+
+    .ctrl-row input[type=range] {
+      width: 100%;
+      accent-color: #fff;
+      height: 3px;
+      cursor: pointer;
+      display: block;
+    }
+
+    /* ── Gyro HUD ── */
+    #gyro-hud {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 10px 12px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 100;
+      font: 10px/1.6 monospace;
+      color: #ccc;
+      min-width: 160px;
+      user-select: none;
+    }
+
+    .hud-title {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #fff;
+      margin-bottom: 6px;
+      opacity: 0.6;
+    }
+
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .hud-row span:first-child { color: #888; }
+    .hud-row span:last-child  { color: #0f9; font-weight: 600; }
+
+    .hud-sep {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      margin: 5px 0;
+    }
+
+    .hud-grid-wrap {
+      margin-top: 8px;
+    }
+
+    .hud-grid {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 4px;
+      background: rgba(255,255,255,0.04);
+      overflow: hidden;
+    }
+
+    /* crosshair lines */
+    .hud-grid::before,
+    .hud-grid::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,0.1);
+    }
+    .hud-grid::before { width: 100%; height: 1px; top: 50%; transform: translateY(-50%); }
+    .hud-grid::after  { height: 100%; width: 1px; left: 50%; transform: translateX(-50%); }
+
+    #hud-dot {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #0f9;
+      box-shadow: 0 0 6px #0f9;
+      transform: translate(-50%, -50%);
+      top: 50%;
+      left: 50%;
+      transition: top 0.05s, left 0.05s;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Scene ── -->
+  <div id="scene">
+    <canvas id="bg-canvas" aria-hidden="true"></canvas>
+    <img id="foreground" src="foreground.png" alt="" draggable="false">
+  </div>
+
+  <!-- ── Gyro HUD ── -->
+  <div id="gyro-hud">
+    <div class="hud-title">Tilt HUD</div>
+    <div class="hud-row"><span>γ X raw</span><span id="hud-gamma">—°</span></div>
+    <div class="hud-row"><span>β Y raw</span><span id="hud-beta">—°</span></div>
+    <div class="hud-sep"></div>
+    <div class="hud-row"><span>norm X</span><span id="hud-nx">0.000</span></div>
+    <div class="hud-row"><span>norm Y</span><span id="hud-ny">0.000</span></div>
+    <div class="hud-grid-wrap">
+      <div class="hud-grid">
+        <div id="hud-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── iOS permission gate ── -->
+  <div id="permission-overlay" style="display:none;">
+    <p>Tap to enable the gyroscope parallax effect</p>
+    <button id="permission-btn">Enable Motion</button>
+  </div>
+
+  <!-- ── Controls panel ── -->
+  <div id="controls">
+    <h3>
+      Parameters
+      <button id="controls-close" title="Hide">✕</button>
+    </h3>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Base Strength</span>
+        <span id="val-base">0.1</span>
+      </div>
+      <input type="range" id="sl-base" min="0.01" max="0.12" step="0.005" value="0.1">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Smoothing</span>
+        <span id="val-smooth">0.25</span>
+      </div>
+      <input type="range" id="sl-smooth" min="0.02" max="0.25" step="0.01" value="0.25">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>FG Translate (px)</span>
+        <span id="val-fgtx">8</span>
+      </div>
+      <input type="range" id="sl-fgtx" min="0" max="20" step="0.5" value="8">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>FG Rotate (deg)</span>
+        <span id="val-fgrot">30</span>
+      </div>
+      <input type="range" id="sl-fgrot" min="0" max="90" step="0.5" value="30">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>FG Zoom</span>
+        <span id="val-fgzoom">1.2</span>
+      </div>
+      <input type="range" id="sl-fgzoom" min="0.8" max="1.5" step="0.01" value="1.2">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Max Tilt</span>
+        <span id="val-maxtilt">1</span>
+      </div>
+      <input type="range" id="sl-maxtilt" min="0.1" max="1" step="0.05" value="1">
+    </div>
+  </div>
+
+  <button id="controls-toggle" title="Show controls">⚙</button>
+
+  <script>
+    /* ─────────────────────────────────────────────────────────────
+       VERTEX SHADER — fullscreen quad, Y-flipped UV
+    ───────────────────────────────────────────────────────────── */
+    const VERT_SRC = `
+attribute vec2 aPosition;
+varying vec2 vUv;
+void main() {
+  vUv = vec2(aPosition.x * 0.5 + 0.5, 0.5 - aPosition.y * 0.5);
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+`;
+
+    /* ─────────────────────────────────────────────────────────────
+       FRAGMENT SHADER — cover-fit + base translation
+       
+       UV pipeline:
+         1. rawUv → cover-fit → imageUv  (letterbox/pillarbox map)
+         2. baseTranslate = -tilt * baseStrength   (whole image moves)
+         3. finalUv = imageUv + baseTranslate
+    ───────────────────────────────────────────────────────────── */
+    const FRAG_SRC = `
+precision mediump float;
+
+uniform sampler2D uTexture;
+uniform vec2      uTilt;          /* normalized -1..1 */
+uniform float     uBaseStrength;  /* ~0.06 */
+uniform vec2      uCoverScale;    /* scale to cover-fit image into canvas */
+uniform vec2      uCoverOffset;   /* offset to center cover-fit */
+
+varying vec2 vUv;
+
+void main() {
+  /* Map raw canvas UV → image UV via cover-fit transform */
+  vec2 imageUv = vUv * uCoverScale + uCoverOffset;
+
+  /* Translate whole background by tilt.
+     Positive sign: tilt right → sample further right → image shifts left,
+     which is the classic parallax direction (background recedes opposite
+     to camera motion). */
+  vec2 finalUv = imageUv + (uTilt * uBaseStrength);
+
+  gl_FragColor = texture2D(uTexture, clamp(finalUv, 0.0, 1.0));
+}
+`;
+
+    /* ─────────────────────────────────────────────────────────────
+       Cover-fit UV: maps raw [0,1]² canvas UV → image UV so the
+       image fills the canvas without distortion (like CSS cover).
+       
+       Returns {scaleX, scaleY, offsetX, offsetY}
+       imageUv = rawUv * scale + offset
+    ───────────────────────────────────────────────────────────── */
+    function computeCoverUV(imgW, imgH, canvasW, canvasH) {
+      const imgAspect    = imgW / imgH;
+      const canvasAspect = canvasW / canvasH;
+
+      let scaleX, scaleY, offsetX, offsetY;
+
+      if (imgAspect > canvasAspect) {
+        /* Image is wider — fit height, crop sides */
+        scaleY  = 1.0;
+        scaleX  = canvasAspect / imgAspect;
+        offsetX = (1.0 - scaleX) / 2.0;
+        offsetY = 0.0;
+      } else {
+        /* Image is taller — fit width, crop top/bottom */
+        scaleX  = 1.0;
+        scaleY  = imgAspect / canvasAspect;
+        offsetX = 0.0;
+        offsetY = (1.0 - scaleY) / 2.0;
+      }
+
+      return { scaleX, scaleY, offsetX, offsetY };
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       RENDERER — owns the WebGL context, rAF loop, tilt lerp
+    ───────────────────────────────────────────────────────────── */
+    class Renderer {
+      constructor(canvas, bgImage, opts) {
+        this._canvas  = canvas;
+        this._bgImage = bgImage;
+
+        this._baseStrength  = opts.baseStrength  ?? 0.06;
+        this._smoothing     = opts.smoothing     ?? 0.07;
+
+        this._currentTilt      = { x: 0, y: 0 };
+        this._targetTilt       = { x: 0, y: 0 };
+        this._lastRenderedTilt = { x: Infinity, y: Infinity };
+        this._needsRedraw      = true;
+        this._rafId            = null;
+        this._paused           = false;
+
+        this._gl          = null;
+        this._program     = null;
+        this._quadBuf     = null;
+        this._bgTexture   = null;
+        this._uniforms    = {};
+        this._coverUV     = null;
+
+        this._onTiltChange = null; /* callback(tilt) — called each frame */
+
+        this._tick = this._tick.bind(this);
+      }
+
+      /* ── Public API ── */
+      setTargetTilt(tilt) {
+        this._targetTilt.x = tilt.x;
+        this._targetTilt.y = tilt.y;
+      }
+
+      setBaseStrength(v) {
+        if (!Number.isFinite(v)) return;
+        this._baseStrength = v;
+        this._needsRedraw  = true;
+      }
+
+      setSmoothing(v) {
+        if (!Number.isFinite(v)) return;
+        this._smoothing = Math.max(0.01, Math.min(0.5, v));
+      }
+
+      onTiltChange(cb) {
+        this._onTiltChange = cb;
+      }
+
+      requestRedraw() {
+        this._needsRedraw = true;
+      }
+
+      resize() {
+        const gl = this._gl;
+        if (!gl) return;
+        gl.viewport(0, 0, this._canvas.width, this._canvas.height);
+        this._updateCoverUV();
+        this._needsRedraw = true;
+      }
+
+      /* ── Init ── */
+      init() {
+        const canvas = this._canvas;
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) { console.error('[Renderer] WebGL not available'); return false; }
+        this._gl = gl;
+
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        /* Compile shaders */
+        const vert = this._compile(gl.VERTEX_SHADER,   VERT_SRC);
+        const frag = this._compile(gl.FRAGMENT_SHADER, FRAG_SRC);
+        if (!vert || !frag) return false;
+
+        const prog = gl.createProgram();
+        gl.attachShader(prog, vert);
+        gl.attachShader(prog, frag);
+        gl.linkProgram(prog);
+        gl.deleteShader(vert);
+        gl.deleteShader(frag);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+          console.error('[Renderer] Link error:', gl.getProgramInfoLog(prog));
+          gl.deleteProgram(prog);
+          return false;
+        }
+        this._program = prog;
+        gl.useProgram(prog);
+
+        /* Fullscreen quad */
+        const verts = new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]);
+        this._quadBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+
+        const aPos = gl.getAttribLocation(prog, 'aPosition');
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+        /* Textures */
+        this._bgTexture = this._uploadTexture(gl, this._bgImage, 0);
+
+        /* Uniforms */
+        this._uniforms = {
+          uTexture:      gl.getUniformLocation(prog, 'uTexture'),
+          uTilt:         gl.getUniformLocation(prog, 'uTilt'),
+          uBaseStrength: gl.getUniformLocation(prog, 'uBaseStrength'),
+          uCoverScale:   gl.getUniformLocation(prog, 'uCoverScale'),
+          uCoverOffset:  gl.getUniformLocation(prog, 'uCoverOffset'),
+        };
+
+        gl.uniform1i(this._uniforms.uTexture, 0);
+
+        this._updateCoverUV();
+
+        this._rafId = requestAnimationFrame(this._tick);
+        return true;
+      }
+
+      /* ── Internal ── */
+      _compile(type, src) {
+        const gl     = this._gl;
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, src);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          console.error('[Renderer] Shader compile error:', gl.getShaderInfoLog(shader));
+          gl.deleteShader(shader);
+          return null;
+        }
+        return shader;
+      }
+
+      _uploadTexture(gl, image, unit) {
+        const tex = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        return tex;
+      }
+
+      _updateCoverUV() {
+        const canvas = this._canvas;
+        const img    = this._bgImage;
+        const imgW   = img.naturalWidth  || img.width;
+        const imgH   = img.naturalHeight || img.height;
+        this._coverUV = computeCoverUV(imgW, imgH, canvas.width, canvas.height);
+      }
+
+      _tick() {
+        if (this._paused) return;
+
+        /* Lerp toward target */
+        const alpha = this._smoothing;
+        const cur   = this._currentTilt;
+        const tgt   = this._targetTilt;
+        cur.x += (tgt.x - cur.x) * alpha;
+        cur.y += (tgt.y - cur.y) * alpha;
+
+        /* Notify caller (for foreground CSS transform) */
+        if (this._onTiltChange) this._onTiltChange({ x: cur.x, y: cur.y });
+
+        /* Idle-skip */
+        const last = this._lastRenderedTilt;
+        const STEP = 0.00008;
+        const NEAR = 0.0006;
+        const stepSmall = Math.abs(cur.x - last.x) < STEP && Math.abs(cur.y - last.y) < STEP;
+        const nearTgt   = Math.abs(cur.x - tgt.x)  < NEAR && Math.abs(cur.y - tgt.y)  < NEAR;
+
+        if (!this._needsRedraw && stepSmall && nearTgt) {
+          cur.x  = tgt.x; cur.y  = tgt.y;
+          last.x = cur.x; last.y = cur.y;
+          this._rafId = requestAnimationFrame(this._tick);
+          return;
+        }
+        this._needsRedraw = false;
+
+        /* Draw */
+        const gl = this._gl;
+        const u  = this._uniforms;
+        const cv = this._coverUV;
+
+        gl.uniform2f(u.uTilt,        cur.x, cur.y);
+        gl.uniform1f(u.uBaseStrength, this._baseStrength);
+        gl.uniform2f(u.uCoverScale,   cv.scaleX,  cv.scaleY);
+        gl.uniform2f(u.uCoverOffset,  cv.offsetX, cv.offsetY);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        last.x = cur.x;
+        last.y = cur.y;
+        this._rafId = requestAnimationFrame(this._tick);
+      }
+
+      pause() {
+        this._paused = true;
+        if (this._rafId !== null) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+      }
+
+      resume() {
+        if (this._paused) {
+          this._paused      = false;
+          this._needsRedraw = true;
+          this._rafId       = requestAnimationFrame(this._tick);
+        }
+      }
+
+      destroy() {
+        this.pause();
+        const gl = this._gl;
+        if (!gl) return;
+        if (this._program)  gl.deleteProgram(this._program);
+        if (this._quadBuf)  gl.deleteBuffer(this._quadBuf);
+        if (this._bgTexture) gl.deleteTexture(this._bgTexture);
+        this._gl = null;
+      }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       INPUT — gyroscope + mouse fallback
+    ───────────────────────────────────────────────────────────── */
+    class GyroInput {
+      constructor(onTilt) {
+        this._onTilt       = onTilt;
+        this._neutralBeta  = null;
+        this._neutralGamma = null;
+        this._prevBeta     = null; /* for jump detection */
+        this._prevGamma    = null;
+        this._bound        = this._onEvent.bind(this);
+        this._active       = false;
+      }
+
+      start() {
+        if (this._active) return;
+        this._active = true;
+        window.addEventListener('deviceorientation', this._bound);
+      }
+
+      stop() {
+        this._active = false;
+        window.removeEventListener('deviceorientation', this._bound);
+      }
+
+      _onEvent(e) {
+        if (e.beta === null || e.gamma === null) return;
+
+        /* Calibrate on first reading */
+        if (this._neutralBeta === null) {
+          this._neutralBeta  = e.beta;
+          this._neutralGamma = e.gamma;
+          this._prevBeta     = e.beta;
+          this._prevGamma    = e.gamma;
+          return;
+        }
+
+        /* Gimbal lock / angle-wrap detection:
+           gamma lives in [-90, 90] and beta in [-180, 180]. When the
+           phone crosses a gimbal singularity both angles can flip by
+           ~180° in a single frame — physically impossible at any real
+           tilt speed (even 300°/s at 60 Hz = 5°/frame). We treat any
+           per-frame delta > 25° as a wrap artifact and skip that frame. */
+        const MAX_DELTA = 25;
+        const jumpGamma = Math.abs(e.gamma - this._prevGamma) > MAX_DELTA;
+        const jumpBeta  = Math.abs(e.beta  - this._prevBeta)  > MAX_DELTA;
+        this._prevGamma = e.gamma;
+        this._prevBeta  = e.beta;
+        if (jumpGamma || jumpBeta) return; /* skip this frame silently */
+
+        const RANGE = 40;
+        const dx = Math.max(-RANGE, Math.min(RANGE, e.gamma - this._neutralGamma)) / RANGE;
+        const dy = Math.max(-RANGE, Math.min(RANGE, e.beta  - this._neutralBeta))  / RANGE;
+        this._onTilt({ x: dx, y: dy }, { gamma: e.gamma, beta: e.beta });
+      }
+    }
+
+    class MouseInput {
+      constructor(onTilt) {
+        this._onTilt = onTilt;
+        this._bound  = this._onMove.bind(this);
+        this._active = false;
+      }
+
+      start() {
+        if (this._active) return;
+        this._active = true;
+        window.addEventListener('mousemove', this._bound);
+      }
+
+      stop() {
+        this._active = false;
+        window.removeEventListener('mousemove', this._bound);
+      }
+
+      _onMove(e) {
+        const dx = (e.clientX / window.innerWidth  - 0.5) * 2;
+        const dy = (e.clientY / window.innerHeight - 0.5) * 2;
+        this._onTilt({ x: dx, y: dy }, null);
+      }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       PERMISSION MANAGER — iOS 13+ gate
+    ───────────────────────────────────────────────────────────── */
+    function needsGyroPermission() {
+      return (
+        typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function'
+      );
+    }
+
+    async function requestGyroPermission() {
+      try {
+        const result = await DeviceOrientationEvent.requestPermission();
+        return result === 'granted';
+      } catch (err) {
+        console.warn('[Gyro] requestPermission() threw:', err);
+        return false;
+      }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       IMAGE LOADER
+    ───────────────────────────────────────────────────────────── */
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img  = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load: ${src}`));
+        img.src    = src;
+      });
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       MAIN
+    ───────────────────────────────────────────────────────────── */
+    document.addEventListener('DOMContentLoaded', () => {
+      const canvas    = document.getElementById('bg-canvas');
+      const fgImg     = document.getElementById('foreground');
+      const permOverlay = document.getElementById('permission-overlay');
+      const permBtn     = document.getElementById('permission-btn');
+      const scene       = document.getElementById('scene');
+
+      /* Foreground transform params (driven by sliders) */
+      let fgTranslate = 8;
+      let fgRotate    = 30;
+      let fgScale     = 1.2;
+      let maxTilt     = 1.0;
+
+      let renderer = null;
+      let gyro     = null;
+      let mouse    = null;
+
+      /* ── Tilt processing: 0.5× vertical + max clamp ── */
+      function processTilt(tilt) {
+        const sx = tilt.x;
+        const sy = tilt.y * 0.5; /* vertical axis is half as sensitive */
+        return {
+          x: Math.max(-maxTilt, Math.min(maxTilt, sx)),
+          y: Math.max(-maxTilt, Math.min(maxTilt, sy)),
+        };
+      }
+
+      /* ── HUD readout ── */
+      function updateHud(raw, processed) {
+        document.getElementById('hud-gamma').textContent = raw ? raw.gamma.toFixed(1) + '°' : '—';
+        document.getElementById('hud-beta').textContent  = raw ? raw.beta.toFixed(1)  + '°' : '—';
+        document.getElementById('hud-nx').textContent    = processed.x.toFixed(3);
+        document.getElementById('hud-ny').textContent    = processed.y.toFixed(3);
+        const dot = document.getElementById('hud-dot');
+        dot.style.left = ((processed.x + 1) / 2 * 100).toFixed(1) + '%';
+        dot.style.top  = ((processed.y + 1) / 2 * 100).toFixed(1) + '%';
+      }
+
+      /* ── Size canvas to its CSS pixel size × DPR ── */
+      function sizeCanvas() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w   = Math.round(canvas.clientWidth  * dpr);
+        const h   = Math.round(canvas.clientHeight * dpr);
+        if (w === 0 || h === 0) return;
+        canvas.width  = w;
+        canvas.height = h;
+      }
+
+      /* ── Foreground CSS 3D transform ── */
+      function applyForegroundTransform(tilt) {
+        fgImg.style.transform =
+          `translate(calc(-50% + ${tilt.x * -fgTranslate}px), calc(-50% + ${tilt.y * -fgTranslate}px)) ` +
+          `perspective(800px) ` +
+          `rotateY(${tilt.x * fgRotate}deg) ` +
+          `rotateX(${tilt.y * -fgRotate}deg) ` +
+          `scale(${fgScale})`;
+      }
+
+      /* ── Boot sequence ── */
+      async function boot() {
+        /* Load images first */
+        let bgImage;
+        try {
+          bgImage = await loadImage('background.png');
+        } catch (err) {
+          console.error('[Boot] Image load failed:', err.message);
+          return;
+        }
+
+        /* Show foreground once its src is decoded */
+        fgImg.decode
+          ? fgImg.decode().then(() => { fgImg.style.display = 'block'; }).catch(() => { fgImg.style.display = 'block'; })
+          : (fgImg.style.display = 'block');
+
+        /* Size canvas then build renderer */
+        sizeCanvas();
+
+        renderer = new Renderer(canvas, bgImage, {
+          baseStrength: 0.1,
+          smoothing:    0.25,
+        });
+
+        /* Feed tilt changes to foreground */
+        renderer.onTiltChange(applyForegroundTransform);
+
+        const ok = renderer.init();
+        if (!ok) {
+          console.error('[Boot] Renderer init failed');
+          return;
+        }
+
+        /* WebGL context loss/restore */
+        canvas.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          renderer.pause();
+        });
+        canvas.addEventListener('webglcontextrestored', () => {
+          renderer.resume();
+        });
+
+        /* Resize */
+        window.addEventListener('resize', () => {
+          sizeCanvas();
+          renderer.resize();
+        });
+
+        /* Start input */
+        startInput();
+      }
+
+      /* ── Input setup ── */
+      function startInput() {
+        /* Always set up mouse fallback */
+        mouse = new MouseInput((tilt, raw) => {
+          const processed = processTilt(tilt);
+          if (renderer) renderer.setTargetTilt(processed);
+          updateHud(null, processed);
+        });
+
+        /* Check for gyro availability */
+        if (typeof DeviceOrientationEvent === 'undefined') {
+          /* No gyro API at all — use mouse only */
+          mouse.start();
+          return;
+        }
+
+        if (needsGyroPermission()) {
+          /* iOS 13+ — show overlay, wait for tap */
+          permOverlay.style.display = 'flex';
+          permBtn.addEventListener('click', async () => {
+            const granted = await requestGyroPermission();
+            permOverlay.style.display = 'none';
+            if (granted) {
+              startGyro();
+            } else {
+              mouse.start();
+            }
+          }, { once: true });
+        } else {
+          /* Android / desktop — try gyro, fall back to mouse after 2s */
+          const gyroTimeout = setTimeout(() => {
+            if (!gyro || !gyro._neutralBeta) {
+              /* No gyro fired — use mouse */
+              mouse.start();
+            }
+          }, 2000);
+
+          gyro = new GyroInput((tilt, raw) => {
+            clearTimeout(gyroTimeout);
+            mouse.stop(); /* stop mouse if it was started */
+            const processed = processTilt(tilt);
+            if (renderer) renderer.setTargetTilt(processed);
+            updateHud(raw, processed);
+          });
+          gyro.start();
+        }
+      }
+
+      function startGyro() {
+        gyro = new GyroInput((tilt, raw) => {
+          const processed = processTilt(tilt);
+          if (renderer) renderer.setTargetTilt(processed);
+          updateHud(raw, processed);
+        });
+        gyro.start();
+      }
+
+      /* ── Controls panel ── */
+      function setupControls() {
+        const controls = document.getElementById('controls');
+        const toggle   = document.getElementById('controls-toggle');
+        const closeBtn = document.getElementById('controls-close');
+
+        closeBtn.addEventListener('click', () => {
+          controls.style.display = 'none';
+          toggle.style.display   = 'flex';
+        });
+
+        toggle.addEventListener('click', () => {
+          controls.style.display = 'block';
+          toggle.style.display   = 'none';
+        });
+
+        function bindSlider(id, valId, onChange) {
+          const sl  = document.getElementById(id);
+          const val = document.getElementById(valId);
+          sl.addEventListener('input', () => {
+            const v = parseFloat(sl.value);
+            val.textContent = v;
+            onChange(v);
+          });
+        }
+
+        bindSlider('sl-base',  'val-base',  (v) => renderer && renderer.setBaseStrength(v));
+        bindSlider('sl-smooth','val-smooth',(v) => renderer && renderer.setSmoothing(v));
+        bindSlider('sl-fgtx',    'val-fgtx',    (v) => { fgTranslate = v; });
+        bindSlider('sl-fgrot',   'val-fgrot',   (v) => { fgRotate = v; });
+        bindSlider('sl-fgzoom',  'val-fgzoom',  (v) => { fgScale = v; });
+        bindSlider('sl-maxtilt', 'val-maxtilt', (v) => { maxTilt = v; });
+      }
+
+      setupControls();
+      boot();
+    });
+  </script>
+</body>
+</html>

@@ -833,7 +833,7 @@ void main() {
       /* ── Foreground CSS 3D transform ── */
       function applyForegroundTransform(tilt) {
         fgImg.style.transform =
-          `translate(calc(-50% + ${tilt.x * -fgTranslate}px), calc(-50% + ${tilt.y * fgTranslate}px)) ` +
+          `translate(calc(-50% + ${tilt.x * -fgTranslate}px), calc(-50% + ${tilt.y * -fgTranslate}px)) ` +
           `perspective(800px) ` +
           `rotateY(${tilt.x * fgRotate}deg) ` +
           `rotateX(${tilt.y * fgRotate}deg) ` +

@@ -659,6 +659,7 @@ void main() {
         this._neutralGamma = null;
         this._prevBeta     = null; /* for jump detection */
         this._prevGamma    = null;
+        this._rejectedFrames = 0;
         this._bound        = this._onEvent.bind(this);
         this._active       = false;
       }
@@ -695,9 +696,24 @@ void main() {
         const MAX_DELTA = 25;
         const jumpGamma = Math.abs(e.gamma - this._prevGamma) > MAX_DELTA;
         const jumpBeta  = Math.abs(e.beta  - this._prevBeta)  > MAX_DELTA;
+        if (jumpGamma || jumpBeta) {
+          this._rejectedFrames += 1;
+
+          /* If we stay in singular orientation for a while, rebase neutral
+             to the new branch so we can recover without a snap. */
+          if (this._rejectedFrames > 12) {
+            this._neutralBeta  = e.beta;
+            this._neutralGamma = e.gamma;
+            this._prevBeta     = e.beta;
+            this._prevGamma    = e.gamma;
+            this._rejectedFrames = 0;
+          }
+          return; /* skip this frame silently */
+        }
+
+        this._rejectedFrames = 0;
         this._prevGamma = e.gamma;
         this._prevBeta  = e.beta;
-        if (jumpGamma || jumpBeta) return; /* skip this frame silently */
 
         const RANGE = 40;
         const dx = Math.max(-RANGE, Math.min(RANGE, e.gamma - this._neutralGamma)) / RANGE;
@@ -786,7 +802,7 @@ void main() {
       /* ── Tilt processing: 0.5× vertical + max clamp ── */
       function processTilt(tilt) {
         const sx = tilt.x;
-        const sy = tilt.y * 0.5; /* vertical axis is half as sensitive */
+        const sy = tilt.y * 0.25; /* vertical axis is quarter as sensitive */
         return {
           x: Math.max(-maxTilt, Math.min(maxTilt, sx)),
           y: Math.max(-maxTilt, Math.min(maxTilt, sy)),

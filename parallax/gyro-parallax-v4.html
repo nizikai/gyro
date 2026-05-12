@@ -192,6 +192,25 @@
       cursor: pointer;
       height: 3px;
     }
+
+    .ctrl-check {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .ctrl-check label {
+      color: #aaa;
+      font-size: 11px;
+    }
+
+    .ctrl-check input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: #fff;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -220,18 +239,18 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Strength</span>
-        <span class="lbl-val" id="val-strength">0.03</span>
+        <span class="lbl-val" id="val-strength">0.025</span>
       </div>
-      <input type="range" id="sl-strength" min="0.01" max="0.08" step="0.001" value="0.03">
+      <input type="range" id="sl-strength" min="0.01" max="0.06" step="0.001" value="0.025">
     </div>
 
     <!-- Pivot Depth -->
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Pivot Depth</span>
-        <span class="lbl-val" id="val-pivot">0.50</span>
+        <span class="lbl-val" id="val-pivot">0.75</span>
       </div>
-      <input type="range" id="sl-pivot" min="0.0" max="1.0" step="0.001" value="0.5">
+      <input type="range" id="sl-pivot" min="0.0" max="1.0" step="0.001" value="0.75">
     </div>
 
     <!-- Smoothing -->
@@ -247,9 +266,37 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span class="lbl-name">Depth Influence</span>
-        <span class="lbl-val" id="val-influence">1.00</span>
+        <span class="lbl-val" id="val-influence">1.20</span>
       </div>
-      <input type="range" id="sl-influence" min="0.5" max="3.0" step="0.05" value="1.0">
+      <input type="range" id="sl-influence" min="0.5" max="2.0" step="0.05" value="1.2">
+    </div>
+
+    <!-- Depth Blur Radius -->
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span class="lbl-name">Depth Blur</span>
+        <span class="lbl-val" id="val-blur">0.008</span>
+      </div>
+      <input type="range" id="sl-blur" min="0.002" max="0.015" step="0.0005" value="0.008">
+    </div>
+
+    <!-- Depth Rotation in Degrees -->
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span class="lbl-name">Depth Rotation°</span>
+        <span class="lbl-val" id="val-rotate">1.2</span>
+      </div>
+      <input type="range" id="sl-rotate" min="0.0" max="4.0" step="0.1" value="1.2">
+    </div>
+
+    <div class="ctrl-check">
+      <label for="chk-invert">Invert Depth Map</label>
+      <input type="checkbox" id="chk-invert">
+    </div>
+
+    <div class="ctrl-check">
+      <label for="chk-show-depth">Show Depth Map</label>
+      <input type="checkbox" id="chk-show-depth">
     </div>
   </div>
 
@@ -277,6 +324,10 @@ uniform vec2 uTilt;
 uniform float uStrength;
 uniform float uPivotDepth;
 uniform float uDepthInfluence;
+uniform float uDepthBlur;
+uniform float uDepthInvert;
+uniform float uShowDepth;
+uniform float uRotateDeg;
 uniform vec2 uCoverScale;
 uniform vec2 uCoverOffset;
 
@@ -286,42 +337,56 @@ void main() {
   // Cover fit
   vec2 coverUV = vUv * uCoverScale + uCoverOffset;
 
-  // Depth taps around current UV
-  float b = 0.004;
-  float dC = texture2D(uDepthMap, coverUV).r;
-  float dR = texture2D(uDepthMap, coverUV + vec2( b, 0.0)).r;
-  float dL = texture2D(uDepthMap, coverUV + vec2(-b, 0.0)).r;
-  float dU = texture2D(uDepthMap, coverUV + vec2(0.0,  b)).r;
-  float dD = texture2D(uDepthMap, coverUV + vec2(0.0, -b)).r;
+  // 9-tap depth blur with tunable radius to reduce edge tearing
+  float b = uDepthBlur;
+  float depth = 0.0;
+  depth += texture2D(uDepthMap, coverUV).r * 4.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b, 0.0)).r * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b, 0.0)).r * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(0.0,  b)).r * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(0.0, -b)).r * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b,  b)).r * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b,  b)).r * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b, -b)).r * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b, -b)).r * 1.0;
+  depth /= 16.0;
 
-  // Edge-aware blur: smooth flat areas, preserve depth boundaries
-  float wR = 1.0 - smoothstep(0.03, 0.14, abs(dR - dC));
-  float wL = 1.0 - smoothstep(0.03, 0.14, abs(dL - dC));
-  float wU = 1.0 - smoothstep(0.03, 0.14, abs(dU - dC));
-  float wD = 1.0 - smoothstep(0.03, 0.14, abs(dD - dC));
-  float depth = (dC * 2.0 + dR * wR + dL * wL + dU * wU + dD * wD) /
-                (2.0 + wR + wL + wU + wD);
+  // Optional depth inversion for opposite-encoded depth maps
+  depth = mix(depth, 1.0 - depth, uDepthInvert);
 
   // Parallax pivot model:
   // behind pivot -> same direction as tilt, in front -> opposite, pivot -> locked
   float relative = (uPivotDepth - depth) * uDepthInfluence;
-  relative = clamp(relative, -0.25, 0.25);
+  relative = clamp(relative, -0.22, 0.22);
 
-  // Damp displacement near hard depth transitions to avoid silhouette splitting
-  float grad = max(abs(dR - dL), abs(dU - dD));
-  float edgeDamp = 1.0 - smoothstep(0.05, 0.20, grad);
-  vec2 disp = uTilt * uStrength * relative * edgeDamp;
-  disp = clamp(disp, vec2(-0.025), vec2(0.025));
+  // Add depth-based rotation in degrees around frame center
+  float rotAxis = (uTilt.x * 0.8 + uTilt.y * 0.3);
+  float angle = radians(uRotateDeg) * rotAxis * relative;
+  float c = cos(angle);
+  float s = sin(angle);
+  vec2 centered = coverUV - vec2(0.5);
+  vec2 rotatedUV = vec2(
+    c * centered.x - s * centered.y,
+    s * centered.x + c * centered.y
+  ) + vec2(0.5);
+
+  // Translation parallax (hard-capped)
+  vec2 disp = uTilt * uStrength * relative;
+  disp = clamp(disp, vec2(-0.02), vec2(0.02));
 
   // Sample image with displacement
-  vec2 finalUV = coverUV + disp;
+  vec2 finalUV = rotatedUV + disp;
 
   // Soft edge fallback — never reveals canvas background
   vec2 edge = min(finalUV, 1.0 - finalUV);
   float fade = smoothstep(0.0, 0.03, min(edge.x, edge.y));
   finalUV = mix(coverUV, finalUV, fade);
 
-  gl_FragColor = vec4(texture2D(uImage, finalUV).rgb, 1.0);
+  vec3 color = texture2D(uImage, finalUV).rgb;
+  if (uShowDepth > 0.5) {
+    color = mix(color, vec3(depth), 0.5);
+  }
+  gl_FragColor = vec4(color, 1.0);
 }
 `;
 
@@ -329,10 +394,14 @@ void main() {
        State
     ───────────────────────────────────────────── */
     const config = {
-      strength:       0.03,
-      pivotDepth:     0.5,
+      strength:       0.025,
+      pivotDepth:     0.75,
       smoothing:      0.06,
-      depthInfluence: 1.0
+      depthInfluence: 1.2,
+      depthBlur:      0.008,
+      depthInvert:    0.0,
+      showDepth:      0.0,
+      rotateDeg:      1.2
     };
 
     const currentTilt = { x: 0, y: 0 };
@@ -388,6 +457,10 @@ void main() {
     const uStrengthLoc       = gl.getUniformLocation(prog, 'uStrength');
     const uPivotDepthLoc     = gl.getUniformLocation(prog, 'uPivotDepth');
     const uDepthInfluenceLoc = gl.getUniformLocation(prog, 'uDepthInfluence');
+    const uDepthBlurLoc      = gl.getUniformLocation(prog, 'uDepthBlur');
+    const uDepthInvertLoc    = gl.getUniformLocation(prog, 'uDepthInvert');
+    const uShowDepthLoc      = gl.getUniformLocation(prog, 'uShowDepth');
+    const uRotateDegLoc      = gl.getUniformLocation(prog, 'uRotateDeg');
     const uCoverScaleLoc     = gl.getUniformLocation(prog, 'uCoverScale');
     const uCoverOffsetLoc    = gl.getUniformLocation(prog, 'uCoverOffset');
     const uImageLoc          = gl.getUniformLocation(prog, 'uImage');
@@ -401,6 +474,10 @@ void main() {
     gl.uniform1f(uStrengthLoc,       config.strength);
     gl.uniform1f(uPivotDepthLoc,     config.pivotDepth);
     gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
+    gl.uniform1f(uDepthBlurLoc,      config.depthBlur);
+    gl.uniform1f(uDepthInvertLoc,    config.depthInvert);
+    gl.uniform1f(uShowDepthLoc,      config.showDepth);
+    gl.uniform1f(uRotateDegLoc,      config.rotateDeg);
     gl.uniform2f(uTiltLoc, 0, 0);
     gl.uniform2f(uCoverScaleLoc,  1, 1);
     gl.uniform2f(uCoverOffsetLoc, 0, 0);
@@ -571,6 +648,10 @@ void main() {
       gl.uniform1f(uStrengthLoc,   config.strength);
       gl.uniform1f(uPivotDepthLoc, config.pivotDepth);
       gl.uniform1f(uDepthInfluenceLoc, config.depthInfluence);
+      gl.uniform1f(uDepthBlurLoc,  config.depthBlur);
+      gl.uniform1f(uDepthInvertLoc, config.depthInvert);
+      gl.uniform1f(uShowDepthLoc, config.showDepth);
+      gl.uniform1f(uRotateDegLoc, config.rotateDeg);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
@@ -602,10 +683,22 @@ void main() {
       });
     }
 
-    wireSlider('sl-strength',  'val-strength',  'strength',       2);
+    function wireCheckbox(boxId, configKey) {
+      const box = document.getElementById(boxId);
+      box.addEventListener('change', () => {
+        config[configKey] = box.checked ? 1.0 : 0.0;
+        needsRedraw = true;
+      });
+    }
+
+    wireSlider('sl-strength',  'val-strength',  'strength',       3);
     wireSlider('sl-pivot',     'val-pivot',      'pivotDepth',     2);
     wireSlider('sl-smoothing', 'val-smoothing',  'smoothing',      2);
     wireSlider('sl-influence', 'val-influence',  'depthInfluence', 2);
+    wireSlider('sl-blur',      'val-blur',       'depthBlur',      3);
+    wireSlider('sl-rotate',    'val-rotate',     'rotateDeg',      1);
+    wireCheckbox('chk-invert', 'depthInvert');
+    wireCheckbox('chk-show-depth', 'showDepth');
 
   </script>
 

@@ -1,3 +1,5 @@
+<!-- depth and mask no longer used -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -179,6 +181,85 @@
       cursor: pointer;
       display: block;
     }
+
+    /* ── Gyro HUD ── */
+    #gyro-hud {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 10px 12px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 100;
+      font: 10px/1.6 monospace;
+      color: #ccc;
+      min-width: 160px;
+      user-select: none;
+    }
+
+    .hud-title {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #fff;
+      margin-bottom: 6px;
+      opacity: 0.6;
+    }
+
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .hud-row span:first-child { color: #888; }
+    .hud-row span:last-child  { color: #0f9; font-weight: 600; }
+
+    .hud-sep {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      margin: 5px 0;
+    }
+
+    .hud-grid-wrap {
+      margin-top: 8px;
+    }
+
+    .hud-grid {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 4px;
+      background: rgba(255,255,255,0.04);
+      overflow: hidden;
+    }
+
+    /* crosshair lines */
+    .hud-grid::before,
+    .hud-grid::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,0.1);
+    }
+    .hud-grid::before { width: 100%; height: 1px; top: 50%; transform: translateY(-50%); }
+    .hud-grid::after  { height: 100%; width: 1px; left: 50%; transform: translateX(-50%); }
+
+    #hud-dot {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #0f9;
+      box-shadow: 0 0 6px #0f9;
+      transform: translate(-50%, -50%);
+      top: 50%;
+      left: 50%;
+      transition: top 0.05s, left 0.05s;
+    }
   </style>
 </head>
 <body>
@@ -187,6 +268,21 @@
   <div id="scene">
     <canvas id="bg-canvas" aria-hidden="true"></canvas>
     <img id="foreground" src="foreground.png" alt="" draggable="false">
+  </div>
+
+  <!-- ── Gyro HUD ── -->
+  <div id="gyro-hud">
+    <div class="hud-title">Tilt HUD</div>
+    <div class="hud-row"><span>γ X raw</span><span id="hud-gamma">—°</span></div>
+    <div class="hud-row"><span>β Y raw</span><span id="hud-beta">—°</span></div>
+    <div class="hud-sep"></div>
+    <div class="hud-row"><span>norm X</span><span id="hud-nx">0.000</span></div>
+    <div class="hud-row"><span>norm Y</span><span id="hud-ny">0.000</span></div>
+    <div class="hud-grid-wrap">
+      <div class="hud-grid">
+        <div id="hud-dot"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ── iOS permission gate ── -->
@@ -205,17 +301,17 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Base Strength</span>
-        <span id="val-base">0.06</span>
+        <span id="val-base">0.1</span>
       </div>
-      <input type="range" id="sl-base" min="0.01" max="0.12" step="0.005" value="0.06">
+      <input type="range" id="sl-base" min="0.01" max="0.12" step="0.005" value="0.1">
     </div>
 
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>Smoothing</span>
-        <span id="val-smooth">0.07</span>
+        <span id="val-smooth">0.25</span>
       </div>
-      <input type="range" id="sl-smooth" min="0.02" max="0.25" step="0.01" value="0.07">
+      <input type="range" id="sl-smooth" min="0.02" max="0.25" step="0.01" value="0.25">
     </div>
 
     <div class="ctrl-row">
@@ -229,17 +325,25 @@
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>FG Rotate (deg)</span>
-        <span id="val-fgrot">6</span>
+        <span id="val-fgrot">30</span>
       </div>
-      <input type="range" id="sl-fgrot" min="0" max="90" step="0.5" value="6">
+      <input type="range" id="sl-fgrot" min="0" max="90" step="0.5" value="30">
     </div>
 
     <div class="ctrl-row">
       <div class="ctrl-label">
         <span>FG Zoom</span>
-        <span id="val-fgzoom">1.05</span>
+        <span id="val-fgzoom">1.2</span>
       </div>
-      <input type="range" id="sl-fgzoom" min="0.8" max="1.5" step="0.01" value="1.05">
+      <input type="range" id="sl-fgzoom" min="0.8" max="1.5" step="0.01" value="1.2">
+    </div>
+
+    <div class="ctrl-row">
+      <div class="ctrl-label">
+        <span>Max Tilt</span>
+        <span id="val-maxtilt">1</span>
+      </div>
+      <input type="range" id="sl-maxtilt" min="0.1" max="1" step="0.05" value="1">
     </div>
   </div>
 
@@ -578,7 +682,7 @@ void main() {
         const RANGE = 40;
         const dx = Math.max(-RANGE, Math.min(RANGE, e.gamma - this._neutralGamma)) / RANGE;
         const dy = Math.max(-RANGE, Math.min(RANGE, e.beta  - this._neutralBeta))  / RANGE;
-        this._onTilt({ x: dx, y: dy });
+        this._onTilt({ x: dx, y: dy }, { gamma: e.gamma, beta: e.beta });
       }
     }
 
@@ -603,7 +707,7 @@ void main() {
       _onMove(e) {
         const dx = (e.clientX / window.innerWidth  - 0.5) * 2;
         const dy = (e.clientY / window.innerHeight - 0.5) * 2;
-        this._onTilt({ x: dx, y: dy });
+        this._onTilt({ x: dx, y: dy }, null);
       }
     }
 
@@ -651,12 +755,34 @@ void main() {
 
       /* Foreground transform params (driven by sliders) */
       let fgTranslate = 8;
-      let fgRotate    = 6;
-      let fgScale     = 1.05;
+      let fgRotate    = 30;
+      let fgScale     = 1.2;
+      let maxTilt     = 1.0;
 
       let renderer = null;
       let gyro     = null;
       let mouse    = null;
+
+      /* ── Tilt processing: 0.5× vertical + max clamp ── */
+      function processTilt(tilt) {
+        const sx = tilt.x;
+        const sy = tilt.y * 0.5; /* vertical axis is half as sensitive */
+        return {
+          x: Math.max(-maxTilt, Math.min(maxTilt, sx)),
+          y: Math.max(-maxTilt, Math.min(maxTilt, sy)),
+        };
+      }
+
+      /* ── HUD readout ── */
+      function updateHud(raw, processed) {
+        document.getElementById('hud-gamma').textContent = raw ? raw.gamma.toFixed(1) + '°' : '—';
+        document.getElementById('hud-beta').textContent  = raw ? raw.beta.toFixed(1)  + '°' : '—';
+        document.getElementById('hud-nx').textContent    = processed.x.toFixed(3);
+        document.getElementById('hud-ny').textContent    = processed.y.toFixed(3);
+        const dot = document.getElementById('hud-dot');
+        dot.style.left = ((processed.x + 1) / 2 * 100).toFixed(1) + '%';
+        dot.style.top  = ((processed.y + 1) / 2 * 100).toFixed(1) + '%';
+      }
 
       /* ── Size canvas to its CSS pixel size × DPR ── */
       function sizeCanvas() {
@@ -698,8 +824,8 @@ void main() {
         sizeCanvas();
 
         renderer = new Renderer(canvas, bgImage, {
-          baseStrength: 0.06,
-          smoothing:    0.07,
+          baseStrength: 0.1,
+          smoothing:    0.25,
         });
 
         /* Feed tilt changes to foreground */
@@ -733,8 +859,10 @@ void main() {
       /* ── Input setup ── */
       function startInput() {
         /* Always set up mouse fallback */
-        mouse = new MouseInput((tilt) => {
-          if (renderer) renderer.setTargetTilt(tilt);
+        mouse = new MouseInput((tilt, raw) => {
+          const processed = processTilt(tilt);
+          if (renderer) renderer.setTargetTilt(processed);
+          updateHud(null, processed);
         });
 
         /* Check for gyro availability */
@@ -765,18 +893,22 @@ void main() {
             }
           }, 2000);
 
-          gyro = new GyroInput((tilt) => {
+          gyro = new GyroInput((tilt, raw) => {
             clearTimeout(gyroTimeout);
             mouse.stop(); /* stop mouse if it was started */
-            if (renderer) renderer.setTargetTilt(tilt);
+            const processed = processTilt(tilt);
+            if (renderer) renderer.setTargetTilt(processed);
+            updateHud(raw, processed);
           });
           gyro.start();
         }
       }
 
       function startGyro() {
-        gyro = new GyroInput((tilt) => {
-          if (renderer) renderer.setTargetTilt(tilt);
+        gyro = new GyroInput((tilt, raw) => {
+          const processed = processTilt(tilt);
+          if (renderer) renderer.setTargetTilt(processed);
+          updateHud(raw, processed);
         });
         gyro.start();
       }
@@ -809,9 +941,10 @@ void main() {
 
         bindSlider('sl-base',  'val-base',  (v) => renderer && renderer.setBaseStrength(v));
         bindSlider('sl-smooth','val-smooth',(v) => renderer && renderer.setSmoothing(v));
-        bindSlider('sl-fgtx',   'val-fgtx',   (v) => { fgTranslate = v; });
-        bindSlider('sl-fgrot',  'val-fgrot',  (v) => { fgRotate = v; });
-        bindSlider('sl-fgzoom', 'val-fgzoom', (v) => { fgScale = v; });
+        bindSlider('sl-fgtx',    'val-fgtx',    (v) => { fgTranslate = v; });
+        bindSlider('sl-fgrot',   'val-fgrot',   (v) => { fgRotate = v; });
+        bindSlider('sl-fgzoom',  'val-fgzoom',  (v) => { fgScale = v; });
+        bindSlider('sl-maxtilt', 'val-maxtilt', (v) => { maxTilt = v; });
       }
 
       setupControls();

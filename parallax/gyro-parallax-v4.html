@@ -427,8 +427,8 @@ void main() {
       uploadTexture(0, imgEl);
       onTextureLoaded();
     };
-    imgEl.onerror = () => console.error('Failed to load image.jpg');
-    imgEl.src = 'image.jpg';
+    imgEl.onerror = () => console.error('Failed to load input.jpeg');
+    imgEl.src = 'input.jpeg';
 
     // Load depth.jpg → TEXTURE1
     const depthEl = new Image();
@@ -436,8 +436,8 @@ void main() {
       uploadTexture(1, depthEl);
       onTextureLoaded();
     };
-    depthEl.onerror = () => console.error('Failed to load depth.jpg');
-    depthEl.src = 'depth.jpg';
+    depthEl.onerror = () => console.error('Failed to load depth.png');
+    depthEl.src = 'depth.png';
 
     /* ─────────────────────────────────────────────
        Cover-fit UV computation

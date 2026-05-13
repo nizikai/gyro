@@ -215,9 +215,9 @@
   <div class="ctrl-row">
     <div class="ctrl-label">
       <span class="lbl-name">FG Rotation (°)</span>
-      <span class="lbl-val" id="val-fg-rot">8.0</span>
+      <span class="lbl-val" id="val-fg-rot">15.0</span>
     </div>
-    <input type="range" id="sl-fg-rot" min="0" max="30" step="0.5" value="8">
+    <input type="range" id="sl-fg-rot" min="0" max="45" step="0.5" value="15">
   </div>
 
   <div class="ctrl-row">
@@ -277,7 +277,8 @@ uniform float uFgStrength;
 uniform float uFgDepthStrength;
 uniform float uFgCoverScale;
 uniform vec2  uFgCoverOffset;
-uniform float uFgRotation;    // signed rotation in radians, applied to FG UVs
+uniform vec2  uFgRot;         // (rotY, rotX) in radians — rotY drives horizontal camera pan
+uniform float uPerspective;   // camera distance (UV units); smaller = stronger perspective
 uniform float uCanvasAspect;  // canvas.width / canvas.height for aspect-safe rotation
 uniform int   uUseFgAlphaAsDepth; // 0 = sample uFgDepthMap.r, 1 = sample uFgImage.a
 
@@ -291,20 +292,44 @@ void main() {
   vec2  offset   = isFg ? uFgCoverOffset : uCoverOffset;
   float strength = isFg ? (uFgStrength * uFgDepthStrength) : uStrength;
 
-  // FG rotation: rotate the sampling UV around the canvas center before the
-  // cover-UV transform. Rotation happens in aspect-corrected canvas space so
-  // a circle stays a circle on wide/tall viewports, then we undo the aspect
-  // warp before feeding into the cover-UV math.
+  // FG perspective rotation — simulates a camera panning around the
+  // foreground plane (v3 feel: rotateY for horizontal pan, rotateX for
+  // vertical). Implemented as an inverse warp: shoot a ray from the camera
+  // through this pixel, apply the inverse rotation to move it into the
+  // plane's local space, then intersect with the plane at z=0.
   vec2 sampleUV = vUv;
-  if (isFg && uFgRotation != 0.0) {
+  if (isFg && (uFgRot.x != 0.0 || uFgRot.y != 0.0)) {
+    float d = uPerspective;
+
     vec2 centered = vUv - 0.5;
     centered.x *= uCanvasAspect;          // to aspect-corrected canvas space
-    float c = cos(uFgRotation);
-    float s = sin(uFgRotation);
-    centered = vec2(c * centered.x - s * centered.y,
-                    s * centered.x + c * centered.y);
-    centered.x /= uCanvasAspect;          // back to UV space
-    sampleUV = centered + 0.5;
+
+    // Camera at (0,0,d) looking toward -z; screen plane at z=0.
+    vec3 ro = vec3(0.0, 0.0, d);
+    vec3 rd = vec3(centered.x, centered.y, -d);
+
+    // Forward rotation on the plane is Rx(θx) * Ry(θy). Inverse transform
+    // applied to the ray is Ry(-θy) then Rx(-θx) → equivalently Rx^T then
+    // Ry^T. Apply in that order to ro and rd.
+    float cY = cos(uFgRot.x), sY = sin(uFgRot.x);   // rotateY angle (horizontal pan)
+    float cX = cos(uFgRot.y), sX = sin(uFgRot.y);   // rotateX angle (vertical pan)
+
+    // Rx^T:  y' =  cX*y + sX*z,   z' = -sX*y + cX*z
+    ro.yz = vec2( cX * ro.y + sX * ro.z, -sX * ro.y + cX * ro.z);
+    rd.yz = vec2( cX * rd.y + sX * rd.z, -sX * rd.y + cX * rd.z);
+
+    // Ry^T:  x' =  cY*x - sY*z,   z' =  sY*x + cY*z
+    ro.xz = vec2( cY * ro.x - sY * ro.z,  sY * ro.x + cY * ro.z);
+    rd.xz = vec2( cY * rd.x - sY * rd.z,  sY * rd.x + cY * rd.z);
+
+    // Ray-plane intersection with local z=0. Guard near-parallel rays.
+    float denom = rd.z;
+    if (abs(denom) < 1e-4) denom = (denom < 0.0 ? -1e-4 : 1e-4);
+    float t = -ro.z / denom;
+
+    vec2 hit = vec2(ro.x + t * rd.x, ro.y + t * rd.y);
+    hit.x /= uCanvasAspect;               // back to UV space
+    sampleUV = hit + 0.5;
   }
 
   // Cover-fit UV: (sampleUV - 0.5) * scale + 0.5 + offset
@@ -390,7 +415,7 @@ const config = {
   depthBlur:       0.006,
   focusDepth:      0.5,   // pivot depth — pixels at this depth are stationary (wired in 3.4)
   fgDepthStrength: 1.0,   // FG displacement depth modulation (wired in 3.4)
-  fgRotationDeg:   8.0    // max FG rotation in degrees at full tilt
+  fgRotationDeg:   15.0   // max FG rotation in degrees at full tilt (v3-style camera pan)
 };
 
 /* ── Tilt state ── */
@@ -458,7 +483,8 @@ const uFgCoverScaleLoc      = gl.getUniformLocation(prog, 'uFgCoverScale');
 const uFgCoverOffsetLoc     = gl.getUniformLocation(prog, 'uFgCoverOffset');
 const uFgStrengthLoc        = gl.getUniformLocation(prog, 'uFgStrength');
 const uFgDepthStrengthLoc   = gl.getUniformLocation(prog, 'uFgDepthStrength');
-const uFgRotationLoc        = gl.getUniformLocation(prog, 'uFgRotation');
+const uFgRotLoc             = gl.getUniformLocation(prog, 'uFgRot');
+const uPerspectiveLoc       = gl.getUniformLocation(prog, 'uPerspective');
 const uCanvasAspectLoc      = gl.getUniformLocation(prog, 'uCanvasAspect');
 const uUseFgAlphaAsDepthLoc = gl.getUniformLocation(prog, 'uUseFgAlphaAsDepth');
 
@@ -482,7 +508,8 @@ gl.uniform1f(uFgStrengthLoc,        0.0);
 gl.uniform1f(uFgDepthStrengthLoc,   1.0);
 gl.uniform1f(uFgCoverScaleLoc,      1.0);
 gl.uniform2f(uFgCoverOffsetLoc,     0.0, 0.0);
-gl.uniform1f(uFgRotationLoc,        0.0);
+gl.uniform2f(uFgRotLoc,             0.0, 0.0);
+gl.uniform1f(uPerspectiveLoc,       1.2);   // camera distance in UV units (≈ CSS perspective(800px))
 gl.uniform1f(uCanvasAspectLoc,      1.0);
 
 /* ── Fullscreen quad ── */
@@ -701,12 +728,14 @@ function loop() {
   const PIXEL_TO_UV_X = 1.0 / (canvas.width || 1);
   gl.uniform1f(uFgStrengthLoc,      config.fgStrength * PIXEL_TO_UV_X);
   gl.uniform1f(uFgDepthStrengthLoc, config.fgDepthStrength);
-  // FG rotation — primarily driven by tilt.x with a subtle tilt.y contribution
-  // for a more dimensional "tumble" feel. Values in radians, scaled by the
-  // slider's degree value so the UI stays intuitive.
+  // FG perspective rotation — v3-style "camera pan" feel. tilt.x drives
+  // rotateY (horizontal pan around the FG), tilt.y drives rotateX with a
+  // flipped sign so looking up tilts the top toward the camera. Values
+  // passed as radians; the slider is in degrees for UX.
   const rotRad = (config.fgRotationDeg * Math.PI / 180);
-  const fgRot  = (current.x + current.y * 0.25) * rotRad;
-  gl.uniform1f(uFgRotationLoc, fgRot);
+  gl.uniform2f(uFgRotLoc,
+                current.x * rotRad,          // rotateY — horizontal pan
+               -current.y * rotRad);         // rotateX — vertical pan (sign matches v3)
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 

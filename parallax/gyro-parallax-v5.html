@@ -172,7 +172,16 @@ void main() {
   // Cover fit
   vec2 uv = vUv * uCoverScale + uCoverOffset;
 
-  // 9-point depth blur
+  // Raw depth sample for debug view
+  float rawDepth = texture2D(uDepthMap, uv).r;
+
+  // Show depth map mode — raw, unblurred
+  if (uShowDepth == 1) {
+    gl_FragColor = vec4(vec3(rawDepth), 1.0);
+    return;
+  }
+
+  // 9-point depth blur — only for parallax calculation
   float b = uBlur;
   float depth = 0.0;
   depth += texture2D(uDepthMap, uv).r            * 4.0;
@@ -185,12 +194,6 @@ void main() {
   depth += texture2D(uDepthMap, uv + vec2( b, -b)).r;
   depth += texture2D(uDepthMap, uv + vec2(-b, -b)).r;
   depth /= 16.0;
-
-  // Show depth map mode
-  if (uShowDepth == 1) {
-    gl_FragColor = vec4(vec3(depth), 1.0);
-    return;
-  }
 
   // THE PIVOT
   float relativeDepth = depth - uFocusDepth;

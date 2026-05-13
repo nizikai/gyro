@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Gyro Parallax v5</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body, html {
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+#scene {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+#bg-canvas {
+  position: absolute;
+  width: 140%;
+  height: 140%;
+  top: -20%;
+  left: -20%;
+  will-change: transform;
+}
+
+#fg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* Permission Overlay */
+#permission-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+#permission-overlay.hidden { display: none; }
+#permission-btn {
+  padding: 16px 32px;
+  font-size: 18px;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+  color: #000;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Controls Panel */
+#controls {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 16px;
+  z-index: 100;
+  color: #fff;
+  font-size: 12px;
+  min-width: 220px;
+}
+#controls label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+#controls input[type="range"] {
+  width: 110px;
+}
+#controls .toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+</style>
+</head>
+<body>
+
+<div id="scene">
+  <canvas id="bg-canvas"></canvas>
+  <img id="fg" src="foreground.png" alt="">
+</div>
+
+<div id="permission-overlay" class="hidden">
+  <button id="permission-btn">Enable Motion</button>
+</div>
+
+<div id="controls">
+  <label>Intensity <input type="range" id="ctrl-intensity" min="0.005" max="0.08" step="0.001" value="0.03"><span id="val-intensity">0.03</span></label>
+  <label>Focus Depth <input type="range" id="ctrl-focus" min="0" max="1" step="0.01" value="0.5"><span id="val-focus">0.5</span></label>
+  <label>Depth Blur <input type="range" id="ctrl-blur" min="0.002" max="0.015" step="0.001" value="0.006"><span id="val-blur">0.006</span></label>
+  <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.15" step="0.01" value="0.06"><span id="val-smooth">0.06</span></label>
+  <label>FG Strength <input type="range" id="ctrl-fg" min="0" max="25" step="1" value="8"><span id="val-fg">8</span></label>
+  <div class="toggle-row">
+    <input type="checkbox" id="ctrl-depth-view">
+    <label for="ctrl-depth-view" style="margin:0">Show Depth Map</label>
+  </div>
+</div>
+
+<script>
+// ─── Config ───
+const config = {
+  intensity: 0.03,
+  focusDepth: 0.5,
+  blur: 0.006,
+  smoothing: 0.06,
+  fgStrength: 8,
+  showDepth: false
+};
+
+// ─── DOM ───
+const canvas = document.getElementById('bg-canvas');
+const fg = document.getElementById('fg');
+const overlay = document.getElementById('permission-overlay');
+const permissionBtn = document.getElementById('permission-btn');
+
+// ─── 1. WebGL Context ───
+const gl = canvas.getContext('webgl', {
+  alpha: false,
+  premultipliedAlpha: false,
+  antialias: false
+});
+
+// ─── 4. Vertex Shader ───
+const vertSrc = `
+attribute vec2 aPosition;
+varying vec2 vUv;
+void main() {
+  vUv = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * 0.5 + 0.5);
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+`;
+
+// ─── 5. Fragment Shader ───
+const fragSrc = `
+precision mediump float;
+
+uniform sampler2D uColorTexture;
+uniform sampler2D uDepthMap;
+uniform vec2 uGyroVector;
+uniform float uFocusDepth;
+uniform float uIntensity;
+uniform vec2 uCoverScale;
+uniform vec2 uCoverOffset;
+uniform float uBlur;
+uniform int uShowDepth;
+
+varying vec2 vUv;
+
+void main() {
+  // Cover fit
+  vec2 uv = vUv * uCoverScale + uCoverOffset;
+
+  // 9-point depth blur
+  float b = uBlur;
+  float depth = 0.0;
+  depth += texture2D(uDepthMap, uv).r            * 4.0;
+  depth += texture2D(uDepthMap, uv + vec2( b, 0.0)).r * 2.0;
+  depth += texture2D(uDepthMap, uv + vec2(-b, 0.0)).r * 2.0;
+  depth += texture2D(uDepthMap, uv + vec2(0.0,  b)).r * 2.0;
+  depth += texture2D(uDepthMap, uv + vec2(0.0, -b)).r * 2.0;
+  depth += texture2D(uDepthMap, uv + vec2( b,  b)).r;
+  depth += texture2D(uDepthMap, uv + vec2(-b,  b)).r;
+  depth += texture2D(uDepthMap, uv + vec2( b, -b)).r;
+  depth += texture2D(uDepthMap, uv + vec2(-b, -b)).r;
+  depth /= 16.0;
+
+  // Show depth map mode
+  if (uShowDepth == 1) {
+    gl_FragColor = vec4(vec3(depth), 1.0);
+    return;
+  }
+
+  // THE PIVOT
+  float relativeDepth = depth - uFocusDepth;
+
+  // Displace UV proportional to gyro + relative depth + intensity
+  vec2 parallaxOffset = uGyroVector * relativeDepth * uIntensity;
+  vec2 newUv = uv + parallaxOffset;
+
+  // Soft edge fade
+  vec2 edge = min(newUv, 1.0 - newUv);
+  float fade = smoothstep(0.0, 0.03, min(edge.x, edge.y));
+  newUv = mix(uv, newUv, fade);
+
+  gl_FragColor = vec4(texture2D(uColorTexture, newUv).rgb, 1.0);
+}
+`;
+
+// ─── Compile Shaders ───
+function createShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s));
+    gl.deleteShader(s);
+    return null;
+  }
+  return s;
+}
+
+const vs = createShader(gl.VERTEX_SHADER, vertSrc);
+const fs = createShader(gl.FRAGMENT_SHADER, fragSrc);
+const program = gl.createProgram();
+gl.attachShader(program, vs);
+gl.attachShader(program, fs);
+gl.linkProgram(program);
+if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+  console.error(gl.getProgramInfoLog(program));
+}
+gl.useProgram(program);
+
+// ─── 3. Fullscreen Quad Geometry ───
+const verts = new Float32Array([
+  -1, -1,   1, -1,  -1,  1,
+  -1,  1,   1, -1,   1,  1,
+]);
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+
+const aPosition = gl.getAttribLocation(program, 'aPosition');
+gl.enableVertexAttribArray(aPosition);
+gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+
+// ─── Uniform Locations ───
+const uColorTextureLoc = gl.getUniformLocation(program, 'uColorTexture');
+const uDepthMapLoc = gl.getUniformLocation(program, 'uDepthMap');
+const uGyroVectorLoc = gl.getUniformLocation(program, 'uGyroVector');
+const uFocusDepthLoc = gl.getUniformLocation(program, 'uFocusDepth');
+const uIntensityLoc = gl.getUniformLocation(program, 'uIntensity');
+const uCoverScaleLoc = gl.getUniformLocation(program, 'uCoverScale');
+const uCoverOffsetLoc = gl.getUniformLocation(program, 'uCoverOffset');
+const uBlurLoc = gl.getUniformLocation(program, 'uBlur');
+const uShowDepthLoc = gl.getUniformLocation(program, 'uShowDepth');
+
+// Set texture unit indices
+gl.uniform1i(uColorTextureLoc, 0);
+gl.uniform1i(uDepthMapLoc, 1);
+
+// Set initial uniform values
+gl.uniform2f(uGyroVectorLoc, 0, 0);
+gl.uniform1f(uFocusDepthLoc, config.focusDepth);
+gl.uniform1f(uIntensityLoc, config.intensity);
+gl.uniform1f(uBlurLoc, config.blur);
+gl.uniform1i(uShowDepthLoc, 0);
+
+// ─── 2. Texture Loading ───
+let imgNaturalW = 0, imgNaturalH = 0;
+let texturesLoaded = 0;
+let needsRedraw = true;
+
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+function loadTexture(url, unit, callback) {
+  const tex = gl.createTexture();
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    if (callback) callback(img);
+    texturesLoaded++;
+    if (texturesLoaded === 2) onTexturesReady();
+  };
+  img.src = url;
+}
+
+function onTexturesReady() {
+  handleResize();
+  loop();
+  initSensors();
+}
+
+// Load background (TEXTURE0) and depth (TEXTURE1)
+loadTexture('background.png', 0, (img) => {
+  imgNaturalW = img.naturalWidth;
+  imgNaturalH = img.naturalHeight;
+});
+loadTexture('depth.png', 1, null);
+
+// ─── 6. Cover UV Calculation ───
+function computeCoverUV(imgW, imgH, canvasW, canvasH) {
+  const ia = imgW / imgH;
+  const ca = canvasW / canvasH;
+  let sx, sy, ox, oy;
+  if (ca > ia) {
+    sx = 1.0; sy = ia / ca;
+    ox = 0.0; oy = (1.0 - sy) / 2.0;
+  } else {
+    sx = ca / ia; sy = 1.0;
+    ox = (1.0 - sx) / 2.0; oy = 0.0;
+  }
+  return { sx, sy, ox, oy };
+}
+
+// ─── 12. Resize Handler ───
+function handleResize() {
+  canvas.width  = canvas.offsetWidth  * devicePixelRatio;
+  canvas.height = canvas.offsetHeight * devicePixelRatio;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  const c = computeCoverUV(imgNaturalW, imgNaturalH, canvas.width, canvas.height);
+  gl.uniform2f(uCoverScaleLoc,  c.sx, c.sy);
+  gl.uniform2f(uCoverOffsetLoc, c.ox, c.oy);
+  needsRedraw = true;
+}
+window.addEventListener('resize', handleResize);
+
+// ─── 7. Sensor Fusion ───
+const current = { x: 0, y: 0 };
+const target  = { x: 0, y: 0 };
+let neutralBeta = null;
+let gyroActive = false;
+
+function initSensors() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    // iOS 13+ permission gate
+    overlay.classList.remove('hidden');
+    permissionBtn.onclick = () => {
+      DeviceOrientationEvent.requestPermission().then(state => {
+        if (state === 'granted') {
+          overlay.classList.add('hidden');
+          startGyro();
+        }
+      });
+    };
+  } else {
+    overlay.classList.add('hidden');
+    startGyro();
+  }
+
+  // Mouse fallback — activates if no gyro event fires within 2 seconds
+  setTimeout(() => {
+    if (!gyroActive) {
+      window.addEventListener('mousemove', e => {
+        target.x = (e.clientX / window.innerWidth  - 0.5) * 2;
+        target.y = (e.clientY / window.innerHeight - 0.5) * 2;
+      });
+    }
+  }, 2000);
+}
+
+function startGyro() {
+  window.addEventListener('deviceorientation', (e) => {
+    if (!e.gamma && !e.beta) return;
+    if (neutralBeta === null) neutralBeta = e.beta;
+    gyroActive = true;
+    target.x = Math.max(-1, Math.min(1, e.gamma / 40));
+    target.y = Math.max(-1, Math.min(1, (e.beta - neutralBeta) / 40));
+  });
+}
+
+// ─── 8. rAF Loop ───
+function loop() {
+  requestAnimationFrame(loop);
+
+  // Lerp = low-pass filter
+  current.x += (target.x - current.x) * config.smoothing;
+  current.y += (target.y - current.y) * config.smoothing;
+
+  // Idle skip
+  if (Math.abs(target.x - current.x) < 0.0005 &&
+      Math.abs(target.y - current.y) < 0.0005 &&
+      !needsRedraw) return;
+  needsRedraw = false;
+
+  gl.uniform2f(uGyroVectorLoc, current.x, current.y);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  // 9. Foreground — CSS transform
+  fg.style.transform =
+    `translate(${current.x * -config.fgStrength}px, ${current.y * -config.fgStrength}px)`;
+}
+
+// ─── 11. Controls Panel ───
+function bindSlider(id, valId, prop, uniformLoc, isInt) {
+  const slider = document.getElementById(id);
+  const valSpan = document.getElementById(valId);
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    config[prop] = v;
+    valSpan.textContent = v;
+    if (uniformLoc) {
+      if (isInt) gl.uniform1i(uniformLoc, v);
+      else gl.uniform1f(uniformLoc, v);
+    }
+    needsRedraw = true;
+  });
+}
+
+bindSlider('ctrl-intensity', 'val-intensity', 'intensity', uIntensityLoc);
+bindSlider('ctrl-focus', 'val-focus', 'focusDepth', uFocusDepthLoc);
+bindSlider('ctrl-blur', 'val-blur', 'blur', uBlurLoc);
+bindSlider('ctrl-smooth', 'val-smooth', 'smoothing', null);
+bindSlider('ctrl-fg', 'val-fg', 'fgStrength', null);
+
+document.getElementById('ctrl-depth-view').addEventListener('change', (e) => {
+  config.showDepth = e.target.checked;
+  gl.uniform1i(uShowDepthLoc, config.showDepth ? 1 : 0);
+  needsRedraw = true;
+});
+</script>
+</body>
+</html>

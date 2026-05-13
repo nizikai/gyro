@@ -199,9 +199,9 @@
   <div class="ctrl-row">
     <div class="ctrl-label">
       <span class="lbl-name">FG Strength</span>
-      <span class="lbl-val" id="val-fg">8</span>
+      <span class="lbl-val" id="val-fg">40</span>
     </div>
-    <input type="range" id="sl-fg" min="0" max="25" step="0.5" value="8">
+    <input type="range" id="sl-fg" min="0" max="120" step="1" value="40">
   </div>
 
   <div class="ctrl-row">
@@ -215,9 +215,17 @@
   <div class="ctrl-row">
     <div class="ctrl-label">
       <span class="lbl-name">FG Rotation (°)</span>
-      <span class="lbl-val" id="val-fg-rot">15.0</span>
+      <span class="lbl-val" id="val-fg-rot">10.0</span>
     </div>
-    <input type="range" id="sl-fg-rot" min="0" max="45" step="0.5" value="15">
+    <input type="range" id="sl-fg-rot" min="0" max="45" step="0.5" value="10">
+  </div>
+
+  <div class="ctrl-row">
+    <div class="ctrl-label">
+      <span class="lbl-name">FG Depth Contrast</span>
+      <span class="lbl-val" id="val-fg-contrast">2.5</span>
+    </div>
+    <input type="range" id="sl-fg-contrast" min="1" max="6" step="0.1" value="2.5">
   </div>
 
   <div class="ctrl-row">
@@ -280,6 +288,7 @@ uniform vec2  uFgCoverOffset;
 uniform vec2  uFgRot;         // (rotY, rotX) in radians — rotY drives horizontal camera pan
 uniform float uPerspective;   // camera distance (UV units); smaller = stronger perspective
 uniform float uCanvasAspect;  // canvas.width / canvas.height for aspect-safe rotation
+uniform float uFgDepthContrast; // FG depth-contrast multiplier around uFocusDepth
 uniform int   uUseFgAlphaAsDepth; // 0 = sample uFgDepthMap.r, 1 = sample uFgImage.a
 
 varying vec2 vUv;
@@ -335,56 +344,52 @@ void main() {
   // Cover-fit UV: (sampleUV - 0.5) * scale + 0.5 + offset
   vec2 coverUV = (sampleUV - 0.5) * scale + 0.5 + offset;
 
-  // 9-tap weighted depth blur on the active depth source
-  // (kernel: center 4, axial 2, diagonal 1, sum 16 — unchanged from v3)
+  // ── Depth sampling (9-tap weighted blur on the shared scene depth map) ──
+  // Both passes sample uDepthMap — depth.png is aligned with the full scene,
+  // so the FG cutout gets real per-pixel depth for the subject rather than
+  // a binary alpha mask. This is what unlocks volumetric parallax on the FG.
   float b = uDepthBlur;
   float depth = 0.0;
-  if (isFg) {
-    if (uUseFgAlphaAsDepth == 1) {
-      // Alpha-derived foreground depth fallback
-      depth += texture2D(uFgImage, coverUV).a                     * 4.0;
-      depth += texture2D(uFgImage, coverUV + vec2( b,  0.0)).a   * 2.0;
-      depth += texture2D(uFgImage, coverUV + vec2(-b,  0.0)).a   * 2.0;
-      depth += texture2D(uFgImage, coverUV + vec2( 0.0,  b)).a   * 2.0;
-      depth += texture2D(uFgImage, coverUV + vec2( 0.0, -b)).a   * 2.0;
-      depth += texture2D(uFgImage, coverUV + vec2( b,  b)).a     * 1.0;
-      depth += texture2D(uFgImage, coverUV + vec2(-b,  b)).a     * 1.0;
-      depth += texture2D(uFgImage, coverUV + vec2( b, -b)).a     * 1.0;
-      depth += texture2D(uFgImage, coverUV + vec2(-b, -b)).a     * 1.0;
-    } else {
-      // Dedicated foreground depth map
-      depth += texture2D(uFgDepthMap, coverUV).r                     * 4.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2( b,  0.0)).r   * 2.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2(-b,  0.0)).r   * 2.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2( 0.0,  b)).r   * 2.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2( 0.0, -b)).r   * 2.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2( b,  b)).r     * 1.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2(-b,  b)).r     * 1.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2( b, -b)).r     * 1.0;
-      depth += texture2D(uFgDepthMap, coverUV + vec2(-b, -b)).r     * 1.0;
-    }
-  } else {
-    // Background depth map (same kernel as v3)
-    depth += texture2D(uDepthMap, coverUV).r                     * 4.0;
-    depth += texture2D(uDepthMap, coverUV + vec2( b,  0.0)).r   * 2.0;
-    depth += texture2D(uDepthMap, coverUV + vec2(-b,  0.0)).r   * 2.0;
-    depth += texture2D(uDepthMap, coverUV + vec2( 0.0,  b)).r   * 2.0;
-    depth += texture2D(uDepthMap, coverUV + vec2( 0.0, -b)).r   * 2.0;
-    depth += texture2D(uDepthMap, coverUV + vec2( b,  b)).r     * 1.0;
-    depth += texture2D(uDepthMap, coverUV + vec2(-b,  b)).r     * 1.0;
-    depth += texture2D(uDepthMap, coverUV + vec2( b, -b)).r     * 1.0;
-    depth += texture2D(uDepthMap, coverUV + vec2(-b, -b)).r     * 1.0;
-  }
+  depth += texture2D(uDepthMap, coverUV).r                   * 4.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b,  0.0)).r  * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b,  0.0)).r  * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( 0.0,  b)).r  * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( 0.0, -b)).r  * 2.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b,  b)).r    * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b,  b)).r    * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2( b, -b)).r    * 1.0;
+  depth += texture2D(uDepthMap, coverUV + vec2(-b, -b)).r    * 1.0;
   depth /= 16.0;
 
-  // Signed pivoted displacement:
-  //   pixels behind focus (depth > uFocusDepth) move opposite to -uTilt
-  //   pixels in front (depth < uFocusDepth) move the other way
-  //   at the focus depth, displacement is zero
-  float pivoted = depth - uFocusDepth;
-  vec2 displacement = -uTilt * strength * pivoted;
+  // ── FG vs BG depth + displacement ──
+  // BG uses the raw blurred depth for simple per-pixel parallax.
+  // FG exaggerates depth contrast around the focus and runs iterative
+  // refinement so the sampled depth matches the depth AT THE FINAL UV,
+  // not at the original pixel. This is what produces real "see-around"
+  // volume — close features (lower depth in this project's convention)
+  // shift by a larger amount than far features, instead of the whole
+  // subject sliding as a flat plate tied to an averaged depth.
+  float sampledDepth = depth;
+  if (isFg) {
+    // Expand contrast around focus so forward features pop and
+    // background features recede, making internal relief legible.
+    sampledDepth = clamp((depth - uFocusDepth) * uFgDepthContrast + uFocusDepth, 0.0, 1.0);
+  }
 
-  vec2 finalUV = coverUV + displacement;
+  // Initial linear displacement guess (same formula for both passes).
+  vec2 displacement = -uTilt * strength * (sampledDepth - uFocusDepth);
+  vec2 finalUV      = coverUV + displacement;
+
+  // FG iterative refinement — converge on the parallax-correct UV.
+  // After each pass, resample depth AT the displaced UV and recompute.
+  // 4 iterations is ample for smooth depth maps and modest tilts.
+  if (isFg) {
+    for (int i = 0; i < 4; i++) {
+      float d = texture2D(uDepthMap, finalUV).r;
+      d = clamp((d - uFocusDepth) * uFgDepthContrast + uFocusDepth, 0.0, 1.0);
+      finalUV = coverUV + (-uTilt * strength * (d - uFocusDepth));
+    }
+  }
 
   // Soft edge fade — never reveals canvas background colour (applied per pass
   // against the active pass's coverUV)
@@ -410,12 +415,13 @@ void main() {
 /* ── Config ── */
 const config = {
   bgStrength:      0.03,
-  fgStrength:      8,
+  fgStrength:      40,    // raised — FG now runs depth-refined parallax, strength drives internal volume
   smoothing:       0.06,
   depthBlur:       0.006,
-  focusDepth:      0.5,   // pivot depth — pixels at this depth are stationary (wired in 3.4)
-  fgDepthStrength: 1.0,   // FG displacement depth modulation (wired in 3.4)
-  fgRotationDeg:   15.0   // max FG rotation in degrees at full tilt (v3-style camera pan)
+  focusDepth:      0.5,   // pivot depth — pixels at this depth are stationary
+  fgDepthStrength: 1.0,   // FG displacement depth modulation
+  fgDepthContrast: 2.5,   // FG depth contrast multiplier around focus (higher = more internal relief)
+  fgRotationDeg:   10.0   // max FG rotation in degrees at full tilt (subtle — depth does the heavy lifting)
 };
 
 /* ── Tilt state ── */
@@ -486,6 +492,7 @@ const uFgDepthStrengthLoc   = gl.getUniformLocation(prog, 'uFgDepthStrength');
 const uFgRotLoc             = gl.getUniformLocation(prog, 'uFgRot');
 const uPerspectiveLoc       = gl.getUniformLocation(prog, 'uPerspective');
 const uCanvasAspectLoc      = gl.getUniformLocation(prog, 'uCanvasAspect');
+const uFgDepthContrastLoc   = gl.getUniformLocation(prog, 'uFgDepthContrast');
 const uUseFgAlphaAsDepthLoc = gl.getUniformLocation(prog, 'uUseFgAlphaAsDepth');
 
 gl.uniform1i(uImageLoc,    0);   // background → TEXTURE0
@@ -511,6 +518,7 @@ gl.uniform2f(uFgCoverOffsetLoc,     0.0, 0.0);
 gl.uniform2f(uFgRotLoc,             0.0, 0.0);
 gl.uniform1f(uPerspectiveLoc,       1.2);   // camera distance in UV units (≈ CSS perspective(800px))
 gl.uniform1f(uCanvasAspectLoc,      1.0);
+gl.uniform1f(uFgDepthContrastLoc,   2.5);   // FG depth contrast multiplier (default feels subtle)
 
 /* ── Fullscreen quad ── */
 const quadVerts = new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]);
@@ -728,6 +736,7 @@ function loop() {
   const PIXEL_TO_UV_X = 1.0 / (canvas.width || 1);
   gl.uniform1f(uFgStrengthLoc,      config.fgStrength * PIXEL_TO_UV_X);
   gl.uniform1f(uFgDepthStrengthLoc, config.fgDepthStrength);
+  gl.uniform1f(uFgDepthContrastLoc, config.fgDepthContrast);
   // FG perspective rotation — v3-style "camera pan" feel. tilt.x drives
   // rotateY (horizontal pan around the FG), tilt.y drives rotateX with a
   // flipped sign so looking up tilts the top toward the camera. Values
@@ -766,6 +775,7 @@ wireSlider('sl-focus',    'val-focus',    'focusDepth', 3);
 wireSlider('sl-fg',       'val-fg',       'fgStrength', 1);
 wireSlider('sl-fg-depth', 'val-fg-depth', 'fgDepthStrength', 2);
 wireSlider('sl-fg-rot',   'val-fg-rot',   'fgRotationDeg', 1);
+wireSlider('sl-fg-contrast','val-fg-contrast','fgDepthContrast', 1);
 wireSlider('sl-smoothing','val-smoothing','smoothing',   2);
 wireSlider('sl-blur',     'val-blur',     'depthBlur',   3);
 

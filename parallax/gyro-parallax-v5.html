@@ -229,7 +229,11 @@ float sampleDepth(vec2 uv, float b) {
 vec2 perspectiveWarp(vec2 uv) {
   // Sample depth at undisplaced position
   float depth = sampleDepth(uv, uBlur);
-  float relZ = (depth - uFocusDepth) * uDepthScale;
+
+  // Invert: far pixels (dark, low depth) get MORE displacement.
+  // Near pixels (bright, high depth) get LESS displacement.
+  // Focus depth → zero displacement (subject locked).
+  float relZ = (uFocusDepth - depth) * uDepthScale;
 
   // Treat fragment as a point at (x-0.5, y-0.5, relZ) in camera space
   vec2 c = uv - 0.5;

@@ -172,12 +172,9 @@ void main() {
   // Cover fit
   vec2 uv = vUv * uCoverScale + uCoverOffset;
 
-  // Raw depth sample for debug view
-  float rawDepth = texture2D(uDepthMap, uv).r;
-
-  // Show depth map mode — raw, unblurred
+  // Show depth map mode — raw texture, no processing
   if (uShowDepth == 1) {
-    gl_FragColor = vec4(vec3(rawDepth), 1.0);
+    gl_FragColor = texture2D(uDepthMap, uv);
     return;
   }
 

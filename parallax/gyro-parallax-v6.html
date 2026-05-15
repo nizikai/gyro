@@ -307,8 +307,8 @@ function startGyro() {
     if (!e.gamma && !e.beta) return;
     if (neutralBeta === null) neutralBeta = e.beta;
     gyroActive = true;
-    target.x = Math.max(-1, Math.min(1, e.gamma / 40));
-    target.y = Math.max(-1, Math.min(1, (e.beta - neutralBeta) / 40));
+    target.x = Math.max(-1, Math.min(1, -e.gamma / 40));
+    target.y = Math.max(-1, Math.min(1, -(e.beta - neutralBeta) / 40));
   });
 }
 

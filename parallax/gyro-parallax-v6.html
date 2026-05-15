@@ -157,7 +157,6 @@ const container = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -179,9 +178,8 @@ const texPromises = [
 ];
 
 Promise.all(texPromises).then(() => {
-  bgTexture.colorSpace = THREE.SRGBColorSpace;
-  fgTexture.colorSpace = THREE.SRGBColorSpace;
   [bgTexture, depthTexture, fgTexture].forEach(t => {
+    t.colorSpace = THREE.LinearSRGBColorSpace;
     t.minFilter = THREE.LinearFilter;
     t.magFilter = THREE.LinearFilter;
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;

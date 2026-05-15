@@ -157,7 +157,7 @@ const config = {
   showDepth: false
 };
 
-const GRID = 200;     // mesh resolution (200×200 = 40k verts, 80k tris)
+const GRID = 350;     // mesh resolution (350×350 for detailed wireframe)
 
 // ─── DOM ───
 const canvas = document.getElementById('bg-canvas');
@@ -235,7 +235,9 @@ varying float vDepth;
 
 void main() {
   if (uWireframe == 1) {
-    gl_FragColor = vec4(0.2, 0.8, 0.4, 1.0);
+    // Depth-based wireframe coloring: bright on raised surfaces, dark in recesses
+    float brightness = vDepth * 0.85 + 0.15;
+    gl_FragColor = vec4(brightness * 0.4, brightness * 0.95, brightness * 0.6, 1.0);
     return;
   }
 

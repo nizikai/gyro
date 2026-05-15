@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Gyro Parallax v6 — Three.js</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body, html {
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+#scene {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+canvas { display: block; }
+
+/* Permission Overlay */
+#permission-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+#permission-overlay.hidden { display: none; }
+#permission-btn {
+  padding: 16px 32px;
+  font-size: 18px;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+  color: #000;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Controls */
+#controls {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 12px;
+  z-index: 100;
+  color: #fff;
+  font-size: 12px;
+  min-width: 250px;
+  overflow: hidden;
+}
+#controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+#controls-header .chevron { transition: transform 0.2s ease; }
+#controls.collapsed #controls-body { display: none; }
+#controls.collapsed #controls-header .chevron { transform: rotate(-90deg); }
+#controls-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+#controls label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  gap: 8px;
+}
+#controls input[type="range"] { width: 100px; flex-shrink: 0; }
+#controls .toggle-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+#controls .val { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; opacity: 0.7; }
+#controls .section-title { margin-top: 12px; font-weight: 600; opacity: 0.5; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+
+<div id="permission-overlay" class="hidden">
+  <button id="permission-btn">Enable Motion</button>
+</div>
+
+<div id="controls">
+  <div id="controls-header">
+    <span>Controls</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="controls-body">
+    <div class="section-title">Camera</div>
+    <label>Orbit X <input type="range" id="ctrl-orbitX" min="0" max="30" step="1" value="15"><span class="val" id="val-orbitX">15</span></label>
+    <label>Orbit Y <input type="range" id="ctrl-orbitY" min="0" max="25" step="1" value="10"><span class="val" id="val-orbitY">10</span></label>
+    <label>FOV <input type="range" id="ctrl-fov" min="20" max="80" step="1" value="40"><span class="val" id="val-fov">40</span></label>
+    <label>Distance <input type="range" id="ctrl-dist" min="1.5" max="5" step="0.1" value="2.8"><span class="val" id="val-dist">2.8</span></label>
+
+    <div class="section-title">Background</div>
+    <label>BG Depth <input type="range" id="ctrl-bgDepth" min="0" max="1.0" step="0.01" value="0.35"><span class="val" id="val-bgDepth">0.35</span></label>
+    <label>Focus <input type="range" id="ctrl-focus" min="0" max="1" step="0.01" value="0.5"><span class="val" id="val-focus">0.5</span></label>
+
+    <div class="section-title">Foreground</div>
+    <label>FG Depth <input type="range" id="ctrl-fgDepth" min="0" max="0.8" step="0.01" value="0.2"><span class="val" id="val-fgDepth">0.2</span></label>
+    <label>FG Lift <input type="range" id="ctrl-fgLift" min="0" max="0.6" step="0.01" value="0.12"><span class="val" id="val-fgLift">0.12</span></label>
+
+    <div class="section-title">Feel</div>
+    <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.2" step="0.01" value="0.06"><span class="val" id="val-smooth">0.06</span></label>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="ctrl-wireframe">
+      <label for="ctrl-wireframe" style="margin:0">Wireframe</label>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ─── Config ───
+const config = {
+  orbitX: 15,
+  orbitY: 10,
+  fov: 40,
+  dist: 2.8,
+  bgDepth: 0.35,
+  focus: 0.5,
+  fgDepth: 0.2,
+  fgLift: 0.12,
+  smoothing: 0.06,
+  wireframe: false
+};
+
+// ─── Scene Setup ───
+const container = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+
+const camera = new THREE.PerspectiveCamera(config.fov, window.innerWidth / window.innerHeight, 0.01, 100);
+camera.position.set(0, 0, config.dist);
+
+// ─── Texture Loader ───
+const loader = new THREE.TextureLoader();
+let bgTexture, depthTexture, fgTexture;
+let bgMesh, fgMesh;
+let ready = false;
+
+const texPromises = [
+  new Promise(res => { bgTexture = loader.load('background.png', res); }),
+  new Promise(res => { depthTexture = loader.load('depth.png', res); }),
+  new Promise(res => { fgTexture = loader.load('foreground.png', res); }),
+];
+
+Promise.all(texPromises).then(() => {
+  bgTexture.colorSpace = THREE.SRGBColorSpace;
+  fgTexture.colorSpace = THREE.SRGBColorSpace;
+  [bgTexture, depthTexture, fgTexture].forEach(t => {
+    t.minFilter = THREE.LinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  });
+  buildMeshes();
+  ready = true;
+  initSensors();
+  loop();
+});
+
+// ─── Custom Displacement Shader ───
+function makeDisplacementMaterial(colorTex, depthTex, isForeground) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColorTex: { value: colorTex },
+      uDepthTex: { value: depthTex },
+      uDepthScale: { value: isForeground ? config.fgDepth : config.bgDepth },
+      uFocus: { value: config.focus },
+      uLift: { value: isForeground ? config.fgLift : 0.0 },
+      uWireframe: { value: 0 },
+    },
+    vertexShader: `
+      uniform sampler2D uDepthTex;
+      uniform float uDepthScale;
+      uniform float uFocus;
+      uniform float uLift;
+
+      varying vec2 vUv;
+      varying float vDepth;
+
+      void main() {
+        vUv = uv;
+        float depth = texture2D(uDepthTex, uv).r;
+        vDepth = depth;
+
+        // Displace along Z: focus depth stays at 0, far pushes back, near pushes forward
+        float displacement = (depth - uFocus) * uDepthScale + uLift;
+
+        vec3 newPos = position + normal * displacement;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uColorTex;
+      uniform int uWireframe;
+      varying vec2 vUv;
+      varying float vDepth;
+
+      void main() {
+        if (uWireframe == 1) {
+          gl_FragColor = vec4(0.15, 0.7, 0.4, 1.0);
+          return;
+        }
+        vec4 color = texture2D(uColorTex, vUv);
+        gl_FragColor = color;
+      }
+    `,
+    transparent: isForeground,
+    depthWrite: true,
+    depthTest: true,
+    side: THREE.FrontSide,
+    wireframe: config.wireframe,
+  });
+}
+
+// ─── Build Meshes ───
+function buildMeshes() {
+  // Compute aspect ratio to match image proportions
+  const imgAspect = bgTexture.image.naturalWidth / bgTexture.image.naturalHeight;
+
+  // Background plane — high segment count for smooth displacement
+  const segments = 200;
+  const bgGeo = new THREE.PlaneGeometry(imgAspect * 2, 2, segments, segments);
+  const bgMat = makeDisplacementMaterial(bgTexture, depthTexture, false);
+  bgMesh = new THREE.Mesh(bgGeo, bgMat);
+  bgMesh.position.z = 0;
+  scene.add(bgMesh);
+
+  // Foreground plane — same geometry, different material
+  const fgGeo = new THREE.PlaneGeometry(imgAspect * 2, 2, segments, segments);
+  const fgMat = makeDisplacementMaterial(fgTexture, depthTexture, true);
+  fgMesh = new THREE.Mesh(fgGeo, fgMat);
+  fgMesh.position.z = 0;
+  scene.add(fgMesh);
+}
+
+// ─── Sensors ───
+const current = { x: 0, y: 0 };
+const target  = { x: 0, y: 0 };
+let neutralBeta = null;
+let gyroActive = false;
+
+function initSensors() {
+  const overlay = document.getElementById('permission-overlay');
+  const btn = document.getElementById('permission-btn');
+
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    overlay.classList.remove('hidden');
+    btn.onclick = () => {
+      DeviceOrientationEvent.requestPermission().then(state => {
+        if (state === 'granted') {
+          overlay.classList.add('hidden');
+          startGyro();
+        }
+      });
+    };
+  } else {
+    overlay.classList.add('hidden');
+    startGyro();
+  }
+
+  setTimeout(() => {
+    if (!gyroActive) {
+      window.addEventListener('mousemove', e => {
+        target.x = (e.clientX / window.innerWidth  - 0.5) * 2;
+        target.y = (e.clientY / window.innerHeight - 0.5) * 2;
+      });
+    }
+  }, 2000);
+}
+
+function startGyro() {
+  window.addEventListener('deviceorientation', (e) => {
+    if (!e.gamma && !e.beta) return;
+    if (neutralBeta === null) neutralBeta = e.beta;
+    gyroActive = true;
+    target.x = Math.max(-1, Math.min(1, e.gamma / 40));
+    target.y = Math.max(-1, Math.min(1, (e.beta - neutralBeta) / 40));
+  });
+}
+
+// ─── Render Loop ───
+let needsRedraw = true;
+
+function loop() {
+  requestAnimationFrame(loop);
+
+  current.x += (target.x - current.x) * config.smoothing;
+  current.y += (target.y - current.y) * config.smoothing;
+
+  if (Math.abs(target.x - current.x) < 0.0003 &&
+      Math.abs(target.y - current.y) < 0.0003 &&
+      !needsRedraw) return;
+  needsRedraw = false;
+
+  // Camera orbit
+  const orbitH = current.x * config.orbitX * Math.PI / 180;
+  const orbitV = current.y * config.orbitY * Math.PI / 180;
+
+  camera.position.x = Math.sin(orbitH) * config.dist;
+  camera.position.y = -Math.sin(orbitV) * config.dist;
+  camera.position.z = Math.cos(orbitH) * Math.cos(orbitV) * config.dist;
+  camera.lookAt(0, 0, 0);
+  camera.fov = config.fov;
+  camera.updateProjectionMatrix();
+
+  // Update uniforms
+  if (bgMesh) {
+    bgMesh.material.uniforms.uDepthScale.value = config.bgDepth;
+    bgMesh.material.uniforms.uFocus.value = config.focus;
+    bgMesh.material.wireframe = config.wireframe;
+    bgMesh.material.uniforms.uWireframe.value = config.wireframe ? 1 : 0;
+  }
+  if (fgMesh) {
+    fgMesh.material.uniforms.uDepthScale.value = config.fgDepth;
+    fgMesh.material.uniforms.uFocus.value = config.focus;
+    fgMesh.material.uniforms.uLift.value = config.fgLift;
+    fgMesh.material.wireframe = config.wireframe;
+    fgMesh.material.uniforms.uWireframe.value = config.wireframe ? 1 : 0;
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ─── Resize ───
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  needsRedraw = true;
+});
+
+// ─── Controls ───
+function bindSlider(id, valId, prop) {
+  const slider = document.getElementById(id);
+  const valSpan = document.getElementById(valId);
+  slider.addEventListener('input', () => {
+    config[prop] = parseFloat(slider.value);
+    valSpan.textContent = slider.value;
+    needsRedraw = true;
+  });
+}
+
+bindSlider('ctrl-orbitX',  'val-orbitX',  'orbitX');
+bindSlider('ctrl-orbitY',  'val-orbitY',  'orbitY');
+bindSlider('ctrl-fov',     'val-fov',     'fov');
+bindSlider('ctrl-dist',    'val-dist',    'dist');
+bindSlider('ctrl-bgDepth', 'val-bgDepth', 'bgDepth');
+bindSlider('ctrl-focus',   'val-focus',   'focus');
+bindSlider('ctrl-fgDepth', 'val-fgDepth', 'fgDepth');
+bindSlider('ctrl-fgLift',  'val-fgLift',  'fgLift');
+bindSlider('ctrl-smooth',  'val-smooth',  'smoothing');
+
+document.getElementById('ctrl-wireframe').addEventListener('change', (e) => {
+  config.wireframe = e.target.checked;
+  needsRedraw = true;
+});
+
+document.getElementById('controls-header').addEventListener('click', () => {
+  document.getElementById('controls').classList.toggle('collapsed');
+});
+</script>
+</body>
+</html>

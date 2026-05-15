@@ -187,6 +187,7 @@ uniform int uLayer;       // 0 = background, 1 = foreground
 uniform mat4 uMVP;
 uniform vec2 uCoverScale;
 uniform vec2 uCoverOffset;
+uniform float uImageAspect;
 
 varying vec2 vUv;
 varying float vDepth;
@@ -200,8 +201,9 @@ void main() {
   float depth = texture2D(uDepthMap, uv).r;
   vDepth = depth;
 
-  // Convert grid to world XY: centered at origin, aspect 1:1 for now
-  vec2 worldXY = (aGridPos - 0.5) * 2.0; // -1..1
+  // Convert grid to world XY: centered at origin, scaled by image aspect
+  vec2 worldXY = (aGridPos - 0.5) * 2.0;
+  worldXY.x *= uImageAspect;
 
   // Z displacement: pivot at focusDepth, invert so far=more displacement
   float relZ = (uFocusDepth - depth) * uHeightScale;
@@ -290,6 +292,7 @@ const u = {
   mvp: gl.getUniformLocation(program, 'uMVP'),
   coverScale: gl.getUniformLocation(program, 'uCoverScale'),
   coverOffset: gl.getUniformLocation(program, 'uCoverOffset'),
+  imageAspect: gl.getUniformLocation(program, 'uImageAspect'),
   showDepth: gl.getUniformLocation(program, 'uShowDepth'),
   wireframe: gl.getUniformLocation(program, 'uWireframe'),
 };
@@ -526,6 +529,7 @@ function render() {
   gl.uniformMatrix4fv(u.mvp, false, mvp);
   gl.uniform2f(u.coverScale, coverScale[0], coverScale[1]);
   gl.uniform2f(u.coverOffset, coverOffset[0], coverOffset[1]);
+  gl.uniform1f(u.imageAspect, imgNaturalW / imgNaturalH);
   gl.uniform1f(u.heightScale, config.heightScale);
   gl.uniform1f(u.focusDepth, config.focusDepth);
   gl.uniform1f(u.fgLift, config.fgLift);

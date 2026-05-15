@@ -187,7 +187,7 @@ uniform int uLayer;       // 0 = background, 1 = foreground
 uniform mat4 uMVP;
 uniform vec2 uCoverScale;
 uniform vec2 uCoverOffset;
-uniform float uImageAspect;
+uniform vec2 uMeshScale;  // world-space mesh dimensions (half-extents)
 
 varying vec2 vUv;
 varying float vDepth;
@@ -201,9 +201,8 @@ void main() {
   float depth = texture2D(uDepthMap, uv).r;
   vDepth = depth;
 
-  // Convert grid to world XY: centered at origin, scaled by image aspect
-  vec2 worldXY = (aGridPos - 0.5) * 2.0;
-  worldXY.x *= uImageAspect;
+  // Convert grid to world XY: centered at origin, scaled to fill viewport
+  vec2 worldXY = (aGridPos - 0.5) * 2.0 * uMeshScale;
 
   // Z displacement: pivot at focusDepth, invert so far=more displacement
   float relZ = (uFocusDepth - depth) * uHeightScale;
@@ -294,7 +293,7 @@ const u = {
   mvp: gl.getUniformLocation(program, 'uMVP'),
   coverScale: gl.getUniformLocation(program, 'uCoverScale'),
   coverOffset: gl.getUniformLocation(program, 'uCoverOffset'),
-  imageAspect: gl.getUniformLocation(program, 'uImageAspect'),
+  meshScale: gl.getUniformLocation(program, 'uMeshScale'),
   showDepth: gl.getUniformLocation(program, 'uShowDepth'),
   wireframe: gl.getUniformLocation(program, 'uWireframe'),
 };
@@ -451,6 +450,8 @@ function mat4Multiply(a, b) {
 
 // ─── Resize ───
 let aspect = 1;
+let meshScaleX = 1, meshScaleY = 1;
+
 function handleResize() {
   canvas.width  = canvas.offsetWidth  * devicePixelRatio;
   canvas.height = canvas.offsetHeight * devicePixelRatio;
@@ -460,6 +461,15 @@ function handleResize() {
     const c = computeCoverUV(imgNaturalW, imgNaturalH, canvas.width, canvas.height);
     coverScale = [c.sx, c.sy];
     coverOffset = [c.ox, c.oy];
+
+    // Compute mesh world-space half-extents so it fills the camera frustum
+    // At distance D with FOV, visible half-height = D * tan(fov/2)
+    // We add a small margin (1.15x) to ensure coverage during orbit
+    const margin = 1.15;
+    const halfH = config.camDist * Math.tan(config.fov * Math.PI / 360) * margin;
+    const halfW = halfH * aspect;
+    meshScaleX = halfW;
+    meshScaleY = halfH;
   }
   needsRedraw = true;
 }
@@ -516,6 +526,13 @@ function render() {
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
 
+  // Recompute mesh scale (depends on camDist and fov which can change via sliders)
+  const margin = 1.15;
+  const halfH = config.camDist * Math.tan(config.fov * Math.PI / 360) * margin;
+  const halfW = halfH * aspect;
+  meshScaleX = halfW;
+  meshScaleY = halfH;
+
   // Camera orbit: orbit around (0,0,0) based on gyro
   const orbitH = current.x * config.orbitX * Math.PI / 180;
   const orbitV = current.y * config.orbitY * Math.PI / 180;
@@ -531,7 +548,7 @@ function render() {
   gl.uniformMatrix4fv(u.mvp, false, mvp);
   gl.uniform2f(u.coverScale, coverScale[0], coverScale[1]);
   gl.uniform2f(u.coverOffset, coverOffset[0], coverOffset[1]);
-  gl.uniform1f(u.imageAspect, imgNaturalW / imgNaturalH);
+  gl.uniform2f(u.meshScale, meshScaleX, meshScaleY);
   gl.uniform1f(u.heightScale, config.heightScale);
   gl.uniform1f(u.focusDepth, config.focusDepth);
   gl.uniform1f(u.fgLift, config.fgLift);

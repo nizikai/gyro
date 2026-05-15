@@ -60,17 +60,42 @@ body, html {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-radius: 12px;
-  padding: 16px;
   z-index: 100;
   color: #fff;
   font-size: 12px;
   min-width: 240px;
+  overflow: hidden;
+}
+#controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+#controls-header .chevron {
+  transition: transform 0.2s ease;
+}
+#controls.collapsed #controls-body {
+  display: none;
+}
+#controls.collapsed #controls-header .chevron {
+  transform: rotate(-90deg);
+}
+#controls-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid rgba(255,255,255,0.08);
 }
 #controls label {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-top: 8px;
   gap: 8px;
 }
 #controls input[type="range"] {
@@ -81,7 +106,7 @@ body, html {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 #controls .val {
   min-width: 38px;
@@ -102,21 +127,29 @@ body, html {
 </div>
 
 <div id="controls">
-  <label>Rotation <input type="range" id="ctrl-rot" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-rot">0.25</span></label>
-  <label>Depth Scale <input type="range" id="ctrl-depth" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-depth">0.25</span></label>
-  <label>Perspective <input type="range" id="ctrl-persp" min="0" max="1.5" step="0.05" value="0.6"><span class="val" id="val-persp">0.6</span></label>
-  <label>Focus Depth <input type="range" id="ctrl-focus" min="0" max="1" step="0.01" value="0.5"><span class="val" id="val-focus">0.5</span></label>
-  <label>Depth Blur <input type="range" id="ctrl-blur" min="0.001" max="0.015" step="0.001" value="0.005"><span class="val" id="val-blur">0.005</span></label>
-  <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.2" step="0.01" value="0.08"><span class="val" id="val-smooth">0.08</span></label>
-  <div class="toggle-row">
-    <input type="checkbox" id="ctrl-depth-view">
-    <label for="ctrl-depth-view" style="margin:0">Show Depth Map</label>
+  <div id="controls-header">
+    <span>Controls</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="controls-body">
+    <label>Pan Strength <input type="range" id="ctrl-pan" min="0" max="0.4" step="0.005" value="0.12"><span class="val" id="val-pan">0.12</span></label>
+    <label>Rotation <input type="range" id="ctrl-rot" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-rot">0.25</span></label>
+    <label>Depth Scale <input type="range" id="ctrl-depth" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-depth">0.25</span></label>
+    <label>Perspective <input type="range" id="ctrl-persp" min="0" max="1.5" step="0.05" value="0.6"><span class="val" id="val-persp">0.6</span></label>
+    <label>Focus Depth <input type="range" id="ctrl-focus" min="0" max="1" step="0.01" value="0.5"><span class="val" id="val-focus">0.5</span></label>
+    <label>Depth Blur <input type="range" id="ctrl-blur" min="0.001" max="0.015" step="0.001" value="0.005"><span class="val" id="val-blur">0.005</span></label>
+    <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.2" step="0.01" value="0.08"><span class="val" id="val-smooth">0.08</span></label>
+    <div class="toggle-row">
+      <input type="checkbox" id="ctrl-depth-view">
+      <label for="ctrl-depth-view" style="margin:0">Show Depth Map</label>
+    </div>
   </div>
 </div>
 
 <script>
 // ─── Config ───
 const config = {
+  pan: 0.12,          // parallax translation strength
   rotation: 0.25,     // max yaw/pitch in radians
   depthScale: 0.25,   // how strongly depth pushes pixels in/out of screen
   perspective: 0.6,   // perspective foreshortening strength
@@ -167,6 +200,7 @@ uniform vec2 uGyroVector;       // -1..1 horizontal/vertical tilt
 uniform float uRotation;        // max rotation angle (radians)
 uniform float uDepthScale;      // depth push strength
 uniform float uPerspective;     // perspective foreshortening
+uniform float uPan;             // parallax pan strength (pivot translation)
 uniform float uFocusDepth;      // pivot depth value
 uniform float uBlur;
 uniform vec2 uCoverScale;
@@ -215,6 +249,15 @@ vec2 perspectiveWarp(vec2 uv) {
   float zDiv = 1.0 - p.z * uPerspective;
   zDiv = max(zDiv, 0.1); // avoid div by zero / inversion
   vec2 projected = p.xy / zDiv + 0.5;
+
+  // Parallax pivot pan: shift sample position based on relative depth.
+  // Behind focus plane (relZ < 0, darker depth) → pans WITH gyro direction.
+  // In front of focus plane (relZ > 0, brighter depth) → pans AGAINST gyro.
+  // At focus plane (relZ ≈ 0) → no pan, subject locked in place.
+  // (Inverse-warp: we shift sample UV opposite to the perceived motion,
+  //  so closer pixels read from gyro direction and farther read against.)
+  vec2 panOffset = uGyroVector * relZ * uPan;
+  projected += panOffset;
 
   return projected;
 }
@@ -292,6 +335,7 @@ const u = {
   rotation: gl.getUniformLocation(program, 'uRotation'),
   depthScale: gl.getUniformLocation(program, 'uDepthScale'),
   perspective: gl.getUniformLocation(program, 'uPerspective'),
+  pan: gl.getUniformLocation(program, 'uPan'),
   focus: gl.getUniformLocation(program, 'uFocusDepth'),
   blur: gl.getUniformLocation(program, 'uBlur'),
   coverScale: gl.getUniformLocation(program, 'uCoverScale'),
@@ -308,6 +352,7 @@ gl.uniform2f(u.gyro, 0, 0);
 gl.uniform1f(u.rotation, config.rotation);
 gl.uniform1f(u.depthScale, config.depthScale);
 gl.uniform1f(u.perspective, config.perspective);
+gl.uniform1f(u.pan, config.pan);
 gl.uniform1f(u.focus, config.focusDepth);
 gl.uniform1f(u.blur, config.blur);
 gl.uniform1i(u.showDepth, 0);
@@ -451,6 +496,7 @@ function bindSlider(id, valId, prop, uniformLoc) {
   });
 }
 
+bindSlider('ctrl-pan',    'val-pan',    'pan',         u.pan);
 bindSlider('ctrl-rot',    'val-rot',    'rotation',    u.rotation);
 bindSlider('ctrl-depth',  'val-depth',  'depthScale',  u.depthScale);
 bindSlider('ctrl-persp',  'val-persp',  'perspective', u.perspective);
@@ -462,6 +508,13 @@ document.getElementById('ctrl-depth-view').addEventListener('change', (e) => {
   config.showDepth = e.target.checked;
   gl.uniform1i(u.showDepth, config.showDepth ? 1 : 0);
   needsRedraw = true;
+});
+
+// ─── Collapsible Panel ───
+const controlsEl = document.getElementById('controls');
+const headerEl = document.getElementById('controls-header');
+headerEl.addEventListener('click', () => {
+  controlsEl.classList.toggle('collapsed');
 });
 </script>
 </body>

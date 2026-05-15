@@ -22,11 +22,11 @@ body, html {
 
 #bg-canvas {
   position: absolute;
-  width: 140%;
-  height: 140%;
-  top: -20%;
-  left: -20%;
-  will-change: transform;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  display: block;
 }
 
 /* Permission Overlay */
@@ -64,22 +64,30 @@ body, html {
   z-index: 100;
   color: #fff;
   font-size: 12px;
-  min-width: 220px;
+  min-width: 240px;
 }
 #controls label {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  gap: 8px;
 }
 #controls input[type="range"] {
   width: 110px;
+  flex-shrink: 0;
 }
 #controls .toggle-row {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
+}
+#controls .val {
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
 }
 </style>
 </head>
@@ -94,11 +102,12 @@ body, html {
 </div>
 
 <div id="controls">
-  <label>Intensity <input type="range" id="ctrl-intensity" min="0.005" max="0.08" step="0.001" value="0.03"><span id="val-intensity">0.03</span></label>
-  <label>Focus Depth <input type="range" id="ctrl-focus" min="0" max="1" step="0.01" value="0.5"><span id="val-focus">0.5</span></label>
-  <label>Depth Blur <input type="range" id="ctrl-blur" min="0.002" max="0.015" step="0.001" value="0.006"><span id="val-blur">0.006</span></label>
-  <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.15" step="0.01" value="0.06"><span id="val-smooth">0.06</span></label>
-  <label>FG Boost <input type="range" id="ctrl-fg" min="0" max="3" step="0.05" value="1.5"><span id="val-fg">1.5</span></label>
+  <label>Rotation <input type="range" id="ctrl-rot" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-rot">0.25</span></label>
+  <label>Depth Scale <input type="range" id="ctrl-depth" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-depth">0.25</span></label>
+  <label>Perspective <input type="range" id="ctrl-persp" min="0" max="1.5" step="0.05" value="0.6"><span class="val" id="val-persp">0.6</span></label>
+  <label>Focus Depth <input type="range" id="ctrl-focus" min="0" max="1" step="0.01" value="0.5"><span class="val" id="val-focus">0.5</span></label>
+  <label>Depth Blur <input type="range" id="ctrl-blur" min="0.001" max="0.015" step="0.001" value="0.005"><span class="val" id="val-blur">0.005</span></label>
+  <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.2" step="0.01" value="0.08"><span class="val" id="val-smooth">0.08</span></label>
   <div class="toggle-row">
     <input type="checkbox" id="ctrl-depth-view">
     <label for="ctrl-depth-view" style="margin:0">Show Depth Map</label>
@@ -108,11 +117,12 @@ body, html {
 <script>
 // ─── Config ───
 const config = {
-  intensity: 0.03,
+  rotation: 0.25,     // max yaw/pitch in radians
+  depthScale: 0.25,   // how strongly depth pushes pixels in/out of screen
+  perspective: 0.6,   // perspective foreshortening strength
   focusDepth: 0.5,
-  blur: 0.006,
-  smoothing: 0.06,
-  fgBoost: 1.5,
+  blur: 0.005,
+  smoothing: 0.08,
   showDepth: false
 };
 
@@ -121,7 +131,7 @@ const canvas = document.getElementById('bg-canvas');
 const overlay = document.getElementById('permission-overlay');
 const permissionBtn = document.getElementById('permission-btn');
 
-// ─── 1. WebGL Context ───
+// ─── WebGL Context ───
 const gl = canvas.getContext('webgl', {
   alpha: false,
   premultipliedAlpha: false,
@@ -139,24 +149,75 @@ void main() {
 `;
 
 // ─── Fragment Shader ───
-// Both background and foreground are warped using the depth map.
-// Foreground gets an extra boost via uFgBoost since it's typically closer to camera.
+// Real-perspective parallax: each pixel is positioned at (x, y, depth) in 3D,
+// then rotated by yaw/pitch driven by gyro, and re-projected through a
+// perspective camera. This creates true rotation + skew, not flat displacement.
+//
+// Two reverse-projection passes — once for background, once for foreground —
+// each driven by the same depth field but with the same scale (matching subject
+// size between layers so they align 1:1).
 const fragSrc = `
 precision mediump float;
 
-uniform sampler2D uColorTexture;   // background
-uniform sampler2D uDepthMap;       // depth (drives distortion scale)
-uniform sampler2D uForeground;     // foreground PNG with alpha
-uniform vec2 uGyroVector;
-uniform float uFocusDepth;
-uniform float uIntensity;
-uniform float uFgBoost;
+uniform sampler2D uColorTexture;
+uniform sampler2D uDepthMap;
+uniform sampler2D uForeground;
+
+uniform vec2 uGyroVector;       // -1..1 horizontal/vertical tilt
+uniform float uRotation;        // max rotation angle (radians)
+uniform float uDepthScale;      // depth push strength
+uniform float uPerspective;     // perspective foreshortening
+uniform float uFocusDepth;      // pivot depth value
+uniform float uBlur;
 uniform vec2 uCoverScale;
 uniform vec2 uCoverOffset;
-uniform float uBlur;
 uniform int uShowDepth;
 
 varying vec2 vUv;
+
+// Sample depth with 9-tap blur to soften edges
+float sampleDepth(vec2 uv, float b) {
+  float d = 0.0;
+  d += texture2D(uDepthMap, uv).r * 4.0;
+  d += texture2D(uDepthMap, uv + vec2( b, 0.0)).r * 2.0;
+  d += texture2D(uDepthMap, uv + vec2(-b, 0.0)).r * 2.0;
+  d += texture2D(uDepthMap, uv + vec2(0.0,  b)).r * 2.0;
+  d += texture2D(uDepthMap, uv + vec2(0.0, -b)).r * 2.0;
+  d += texture2D(uDepthMap, uv + vec2( b,  b)).r;
+  d += texture2D(uDepthMap, uv + vec2(-b,  b)).r;
+  d += texture2D(uDepthMap, uv + vec2( b, -b)).r;
+  d += texture2D(uDepthMap, uv + vec2(-b, -b)).r;
+  return d / 16.0;
+}
+
+// Project a UV through 3D rotation + perspective.
+// Returns the source UV that should be sampled at this fragment.
+vec2 perspectiveWarp(vec2 uv) {
+  // Sample depth at undisplaced position
+  float depth = sampleDepth(uv, uBlur);
+  float relZ = (depth - uFocusDepth) * uDepthScale;
+
+  // Treat fragment as a point at (x-0.5, y-0.5, relZ) in camera space
+  vec2 c = uv - 0.5;
+  vec3 p = vec3(c.x, c.y, relZ);
+
+  // Yaw: rotate around vertical axis (horizontal tilt)
+  float yaw = uGyroVector.x * uRotation;
+  float cy = cos(yaw), sy = sin(yaw);
+  p = vec3(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z);
+
+  // Pitch: rotate around horizontal axis (vertical tilt)
+  float pitch = -uGyroVector.y * uRotation;
+  float cp = cos(pitch), sp = sin(pitch);
+  p = vec3(p.x, cp * p.y - sp * p.z, sp * p.y + cp * p.z);
+
+  // Perspective project (z>0 = closer to camera, pushes outward)
+  float zDiv = 1.0 - p.z * uPerspective;
+  zDiv = max(zDiv, 0.1); // avoid div by zero / inversion
+  vec2 projected = p.xy / zDiv + 0.5;
+
+  return projected;
+}
 
 void main() {
   // Cover fit
@@ -168,50 +229,20 @@ void main() {
     return;
   }
 
-  // 9-point depth blur — softens hard depth edges
-  float b = uBlur;
-  float depth = 0.0;
-  depth += texture2D(uDepthMap, uv).r            * 4.0;
-  depth += texture2D(uDepthMap, uv + vec2( b, 0.0)).r * 2.0;
-  depth += texture2D(uDepthMap, uv + vec2(-b, 0.0)).r * 2.0;
-  depth += texture2D(uDepthMap, uv + vec2(0.0,  b)).r * 2.0;
-  depth += texture2D(uDepthMap, uv + vec2(0.0, -b)).r * 2.0;
-  depth += texture2D(uDepthMap, uv + vec2( b,  b)).r;
-  depth += texture2D(uDepthMap, uv + vec2(-b,  b)).r;
-  depth += texture2D(uDepthMap, uv + vec2( b, -b)).r;
-  depth += texture2D(uDepthMap, uv + vec2(-b, -b)).r;
-  depth /= 16.0;
+  // Reverse-warp: figure out where in source to read for this output pixel
+  vec2 srcUv = perspectiveWarp(uv);
 
-  // PIVOT — depth value relative to focal plane
-  float relativeDepth = depth - uFocusDepth;
+  // Soft fade at edges to hide black
+  vec2 edge = min(srcUv, 1.0 - srcUv);
+  float fade = smoothstep(0.0, 0.04, min(edge.x, edge.y));
+  srcUv = mix(uv, srcUv, fade);
 
-  // Background displacement — depth-driven
-  vec2 bgOffset = uGyroVector * relativeDepth * uIntensity;
-  vec2 bgUv = uv + bgOffset;
+  // Sample background and foreground at the same warped UV — same scale
+  vec3 bg = texture2D(uColorTexture, srcUv).rgb;
+  vec4 fg = texture2D(uForeground, srcUv);
 
-  // Foreground displacement — depth-driven with extra boost
-  // Since foreground subject is closer to camera, depth value there is small.
-  // Multiplying by fgBoost makes the foreground warp distinctly from background.
-  vec2 fgOffset = uGyroVector * relativeDepth * uIntensity * uFgBoost;
-  vec2 fgUv = uv + fgOffset;
-
-  // Soft edge fade for background
-  vec2 bgEdge = min(bgUv, 1.0 - bgUv);
-  float bgFade = smoothstep(0.0, 0.03, min(bgEdge.x, bgEdge.y));
-  bgUv = mix(uv, bgUv, bgFade);
-
-  // Soft edge fade for foreground
-  vec2 fgEdge = min(fgUv, 1.0 - fgUv);
-  float fgFade = smoothstep(0.0, 0.03, min(fgEdge.x, fgEdge.y));
-  fgUv = mix(uv, fgUv, fgFade);
-
-  // Sample both layers
-  vec3 bgColor = texture2D(uColorTexture, bgUv).rgb;
-  vec4 fgColor = texture2D(uForeground, fgUv);
-
-  // Composite foreground over background using fg alpha
-  vec3 finalColor = mix(bgColor, fgColor.rgb, fgColor.a);
-
+  // Composite
+  vec3 finalColor = mix(bg, fg.rgb, fg.a);
   gl_FragColor = vec4(finalColor, 1.0);
 }
 `;
@@ -223,7 +254,6 @@ function createShader(type, src) {
   gl.compileShader(s);
   if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
     console.error(gl.getShaderInfoLog(s));
-    gl.deleteShader(s);
     return null;
   }
   return s;
@@ -240,7 +270,7 @@ if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
 }
 gl.useProgram(program);
 
-// ─── Fullscreen Quad Geometry ───
+// ─── Geometry ───
 const verts = new Float32Array([
   -1, -1,   1, -1,  -1,  1,
   -1,  1,   1, -1,   1,  1,
@@ -254,30 +284,33 @@ gl.enableVertexAttribArray(aPosition);
 gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
 // ─── Uniform Locations ───
-const uColorTextureLoc = gl.getUniformLocation(program, 'uColorTexture');
-const uDepthMapLoc = gl.getUniformLocation(program, 'uDepthMap');
-const uForegroundLoc = gl.getUniformLocation(program, 'uForeground');
-const uGyroVectorLoc = gl.getUniformLocation(program, 'uGyroVector');
-const uFocusDepthLoc = gl.getUniformLocation(program, 'uFocusDepth');
-const uIntensityLoc = gl.getUniformLocation(program, 'uIntensity');
-const uFgBoostLoc = gl.getUniformLocation(program, 'uFgBoost');
-const uCoverScaleLoc = gl.getUniformLocation(program, 'uCoverScale');
-const uCoverOffsetLoc = gl.getUniformLocation(program, 'uCoverOffset');
-const uBlurLoc = gl.getUniformLocation(program, 'uBlur');
-const uShowDepthLoc = gl.getUniformLocation(program, 'uShowDepth');
+const u = {
+  color: gl.getUniformLocation(program, 'uColorTexture'),
+  depth: gl.getUniformLocation(program, 'uDepthMap'),
+  fg: gl.getUniformLocation(program, 'uForeground'),
+  gyro: gl.getUniformLocation(program, 'uGyroVector'),
+  rotation: gl.getUniformLocation(program, 'uRotation'),
+  depthScale: gl.getUniformLocation(program, 'uDepthScale'),
+  perspective: gl.getUniformLocation(program, 'uPerspective'),
+  focus: gl.getUniformLocation(program, 'uFocusDepth'),
+  blur: gl.getUniformLocation(program, 'uBlur'),
+  coverScale: gl.getUniformLocation(program, 'uCoverScale'),
+  coverOffset: gl.getUniformLocation(program, 'uCoverOffset'),
+  showDepth: gl.getUniformLocation(program, 'uShowDepth'),
+};
 
 // Bind texture units
-gl.uniform1i(uColorTextureLoc, 0);
-gl.uniform1i(uDepthMapLoc, 1);
-gl.uniform1i(uForegroundLoc, 2);
+gl.uniform1i(u.color, 0);
+gl.uniform1i(u.depth, 1);
+gl.uniform1i(u.fg, 2);
 
-// Initial uniform values
-gl.uniform2f(uGyroVectorLoc, 0, 0);
-gl.uniform1f(uFocusDepthLoc, config.focusDepth);
-gl.uniform1f(uIntensityLoc, config.intensity);
-gl.uniform1f(uFgBoostLoc, config.fgBoost);
-gl.uniform1f(uBlurLoc, config.blur);
-gl.uniform1i(uShowDepthLoc, 0);
+gl.uniform2f(u.gyro, 0, 0);
+gl.uniform1f(u.rotation, config.rotation);
+gl.uniform1f(u.depthScale, config.depthScale);
+gl.uniform1f(u.perspective, config.perspective);
+gl.uniform1f(u.focus, config.focusDepth);
+gl.uniform1f(u.blur, config.blur);
+gl.uniform1i(u.showDepth, 0);
 
 // ─── Texture Loading ───
 let imgNaturalW = 0, imgNaturalH = 0;
@@ -311,7 +344,6 @@ function onTexturesReady() {
   initSensors();
 }
 
-// Background → TEXTURE0, depth → TEXTURE1, foreground → TEXTURE2
 loadTexture('background.png', 0, (img) => {
   imgNaturalW = img.naturalWidth;
   imgNaturalH = img.naturalHeight;
@@ -319,7 +351,7 @@ loadTexture('background.png', 0, (img) => {
 loadTexture('depth.png', 1, null);
 loadTexture('foreground.png', 2, null);
 
-// ─── Cover UV Calculation ───
+// ─── Cover UV ───
 function computeCoverUV(imgW, imgH, canvasW, canvasH) {
   const ia = imgW / imgH;
   const ca = canvasW / canvasH;
@@ -334,19 +366,20 @@ function computeCoverUV(imgW, imgH, canvasW, canvasH) {
   return { sx, sy, ox, oy };
 }
 
-// ─── Resize Handler ───
 function handleResize() {
   canvas.width  = canvas.offsetWidth  * devicePixelRatio;
   canvas.height = canvas.offsetHeight * devicePixelRatio;
   gl.viewport(0, 0, canvas.width, canvas.height);
-  const c = computeCoverUV(imgNaturalW, imgNaturalH, canvas.width, canvas.height);
-  gl.uniform2f(uCoverScaleLoc,  c.sx, c.sy);
-  gl.uniform2f(uCoverOffsetLoc, c.ox, c.oy);
+  if (imgNaturalW > 0) {
+    const c = computeCoverUV(imgNaturalW, imgNaturalH, canvas.width, canvas.height);
+    gl.uniform2f(u.coverScale, c.sx, c.sy);
+    gl.uniform2f(u.coverOffset, c.ox, c.oy);
+  }
   needsRedraw = true;
 }
 window.addEventListener('resize', handleResize);
 
-// ─── Sensor Fusion ───
+// ─── Sensors ───
 const current = { x: 0, y: 0 };
 const target  = { x: 0, y: 0 };
 let neutralBeta = null;
@@ -401,11 +434,11 @@ function loop() {
       !needsRedraw) return;
   needsRedraw = false;
 
-  gl.uniform2f(uGyroVectorLoc, current.x, current.y);
+  gl.uniform2f(u.gyro, current.x, current.y);
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
-// ─── Controls Panel ───
+// ─── Controls ───
 function bindSlider(id, valId, prop, uniformLoc) {
   const slider = document.getElementById(id);
   const valSpan = document.getElementById(valId);
@@ -418,15 +451,16 @@ function bindSlider(id, valId, prop, uniformLoc) {
   });
 }
 
-bindSlider('ctrl-intensity', 'val-intensity', 'intensity', uIntensityLoc);
-bindSlider('ctrl-focus', 'val-focus', 'focusDepth', uFocusDepthLoc);
-bindSlider('ctrl-blur', 'val-blur', 'blur', uBlurLoc);
-bindSlider('ctrl-smooth', 'val-smooth', 'smoothing', null);
-bindSlider('ctrl-fg', 'val-fg', 'fgBoost', uFgBoostLoc);
+bindSlider('ctrl-rot',    'val-rot',    'rotation',    u.rotation);
+bindSlider('ctrl-depth',  'val-depth',  'depthScale',  u.depthScale);
+bindSlider('ctrl-persp',  'val-persp',  'perspective', u.perspective);
+bindSlider('ctrl-focus',  'val-focus',  'focusDepth',  u.focus);
+bindSlider('ctrl-blur',   'val-blur',   'blur',        u.blur);
+bindSlider('ctrl-smooth', 'val-smooth', 'smoothing',   null);
 
 document.getElementById('ctrl-depth-view').addEventListener('change', (e) => {
   config.showDepth = e.target.checked;
-  gl.uniform1i(uShowDepthLoc, config.showDepth ? 1 : 0);
+  gl.uniform1i(u.showDepth, config.showDepth ? 1 : 0);
   needsRedraw = true;
 });
 </script>

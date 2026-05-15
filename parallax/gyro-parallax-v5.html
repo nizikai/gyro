@@ -12,20 +12,17 @@ body, html {
   background: #000;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
 }
-
 #scene {
   width: 100vw;
   height: 100vh;
   position: relative;
   overflow: hidden;
 }
-
 #bg-canvas {
   position: absolute;
   width: 100%;
   height: 100%;
-  top: 0;
-  left: 0;
+  top: 0; left: 0;
   display: block;
 }
 
@@ -63,7 +60,7 @@ body, html {
   z-index: 100;
   color: #fff;
   font-size: 12px;
-  min-width: 240px;
+  min-width: 250px;
   overflow: hidden;
 }
 #controls-header {
@@ -81,12 +78,8 @@ body, html {
 #controls-header .chevron {
   transition: transform 0.2s ease;
 }
-#controls.collapsed #controls-body {
-  display: none;
-}
-#controls.collapsed #controls-header .chevron {
-  transform: rotate(-90deg);
-}
+#controls.collapsed #controls-body { display: none; }
+#controls.collapsed #controls-header .chevron { transform: rotate(-90deg); }
 #controls-body {
   padding: 4px 14px 14px;
   border-top: 1px solid rgba(255,255,255,0.08);
@@ -98,22 +91,10 @@ body, html {
   margin-top: 8px;
   gap: 8px;
 }
-#controls input[type="range"] {
-  width: 110px;
-  flex-shrink: 0;
-}
-#controls .toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-#controls .val {
-  min-width: 38px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.7;
-}
+#controls input[type="range"] { width: 100px; flex-shrink: 0; }
+#controls .toggle-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+#controls .val { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; opacity: 0.7; }
+#controls .section-title { margin-top: 12px; font-weight: 600; opacity: 0.5; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
 </style>
 </head>
 <body>
@@ -132,16 +113,30 @@ body, html {
     <span class="chevron">▾</span>
   </div>
   <div id="controls-body">
-    <label>Pan Strength <input type="range" id="ctrl-pan" min="0" max="0.4" step="0.005" value="0.12"><span class="val" id="val-pan">0.12</span></label>
-    <label>Rotation <input type="range" id="ctrl-rot" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-rot">0.25</span></label>
-    <label>Depth Scale <input type="range" id="ctrl-depth" min="0" max="0.6" step="0.01" value="0.25"><span class="val" id="val-depth">0.25</span></label>
-    <label>Perspective <input type="range" id="ctrl-persp" min="0" max="1.5" step="0.05" value="0.6"><span class="val" id="val-persp">0.6</span></label>
+    <div class="section-title">Camera</div>
+    <label>Orbit X <input type="range" id="ctrl-orbitX" min="0" max="35" step="1" value="18"><span class="val" id="val-orbitX">18</span></label>
+    <label>Orbit Y <input type="range" id="ctrl-orbitY" min="0" max="35" step="1" value="12"><span class="val" id="val-orbitY">12</span></label>
+    <label>FOV <input type="range" id="ctrl-fov" min="20" max="90" step="1" value="45"><span class="val" id="val-fov">45</span></label>
+    <label>Camera Dist <input type="range" id="ctrl-camDist" min="1" max="5" step="0.1" value="2.5"><span class="val" id="val-camDist">2.5</span></label>
+
+    <div class="section-title">Depth Mesh</div>
+    <label>Height Scale <input type="range" id="ctrl-height" min="0" max="0.8" step="0.01" value="0.3"><span class="val" id="val-height">0.3</span></label>
     <label>Focus Depth <input type="range" id="ctrl-focus" min="0" max="1" step="0.01" value="0.5"><span class="val" id="val-focus">0.5</span></label>
-    <label>Depth Blur <input type="range" id="ctrl-blur" min="0.001" max="0.015" step="0.001" value="0.005"><span class="val" id="val-blur">0.005</span></label>
-    <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.2" step="0.01" value="0.08"><span class="val" id="val-smooth">0.08</span></label>
+
+    <div class="section-title">Foreground</div>
+    <label>FG Height <input type="range" id="ctrl-fgHeight" min="0" max="0.6" step="0.01" value="0.15"><span class="val" id="val-fgHeight">0.15</span></label>
+    <label>FG Lift <input type="range" id="ctrl-fgLift" min="0" max="0.5" step="0.01" value="0.08"><span class="val" id="val-fgLift">0.08</span></label>
+
+    <div class="section-title">Feel</div>
+    <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.2" step="0.01" value="0.07"><span class="val" id="val-smooth">0.07</span></label>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="ctrl-wireframe">
+      <label for="ctrl-wireframe" style="margin:0">Wireframe</label>
+    </div>
     <div class="toggle-row">
       <input type="checkbox" id="ctrl-depth-view">
-      <label for="ctrl-depth-view" style="margin:0">Show Depth Map</label>
+      <label for="ctrl-depth-view" style="margin:0">Show Depth</label>
     </div>
   </div>
 </div>
@@ -149,15 +144,20 @@ body, html {
 <script>
 // ─── Config ───
 const config = {
-  pan: 0.12,          // parallax translation strength
-  rotation: 0.25,     // max yaw/pitch in radians
-  depthScale: 0.25,   // how strongly depth pushes pixels in/out of screen
-  perspective: 0.6,   // perspective foreshortening strength
-  focusDepth: 0.5,
-  blur: 0.005,
-  smoothing: 0.08,
+  orbitX: 18,         // max horizontal orbit angle (degrees)
+  orbitY: 12,         // max vertical orbit angle (degrees)
+  fov: 45,            // field of view (degrees)
+  camDist: 2.5,       // camera distance from origin
+  heightScale: 0.3,   // depth map → vertex Z displacement
+  focusDepth: 0.5,    // depth pivot (this depth = Z=0 plane)
+  fgHeight: 0.15,     // foreground additional displacement scale
+  fgLift: 0.08,       // foreground base lift above background
+  smoothing: 0.07,
+  wireframe: false,
   showDepth: false
 };
+
+const GRID = 200;     // mesh resolution (200×200 = 40k verts, 80k tris)
 
 // ─── DOM ───
 const canvas = document.getElementById('bg-canvas');
@@ -168,133 +168,88 @@ const permissionBtn = document.getElementById('permission-btn');
 const gl = canvas.getContext('webgl', {
   alpha: false,
   premultipliedAlpha: false,
-  antialias: false
+  antialias: true
 });
+const extUint = gl.getExtension('OES_element_index_uint');
 
-// ─── Vertex Shader ───
+// ─── Shaders ───
 const vertSrc = `
-attribute vec2 aPosition;
+attribute vec2 aGridPos;  // 0..1 grid coordinate
+
+uniform sampler2D uDepthMap;
+uniform float uHeightScale;
+uniform float uFocusDepth;
+uniform float uFgLift;
+uniform float uFgHeight;
+uniform int uLayer;       // 0 = background, 1 = foreground
+uniform mat4 uMVP;
+uniform vec2 uCoverScale;
+uniform vec2 uCoverOffset;
+
 varying vec2 vUv;
+varying float vDepth;
+
 void main() {
-  vUv = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * 0.5 + 0.5);
-  gl_Position = vec4(aPosition, 0.0, 1.0);
+  // Cover-fit UV
+  vec2 uv = aGridPos * uCoverScale + uCoverOffset;
+  vUv = uv;
+
+  // Sample depth at this vertex
+  float depth = texture2D(uDepthMap, uv).r;
+  vDepth = depth;
+
+  // Convert grid to world XY: centered at origin, aspect 1:1 for now
+  vec2 worldXY = (aGridPos - 0.5) * 2.0; // -1..1
+
+  // Z displacement: pivot at focusDepth, invert so far=more displacement
+  float relZ = (uFocusDepth - depth) * uHeightScale;
+
+  // Foreground layer gets extra lift + its own depth response
+  if (uLayer == 1) {
+    float fgDepthPush = (depth - uFocusDepth) * uFgHeight;
+    relZ = uFgLift + fgDepthPush;
+  }
+
+  vec4 pos = uMVP * vec4(worldXY, relZ, 1.0);
+  gl_Position = pos;
 }
 `;
 
-// ─── Fragment Shader ───
-// Real-perspective parallax: each pixel is positioned at (x, y, depth) in 3D,
-// then rotated by yaw/pitch driven by gyro, and re-projected through a
-// perspective camera. This creates true rotation + skew, not flat displacement.
-//
-// Two reverse-projection passes — once for background, once for foreground —
-// each driven by the same depth field but with the same scale (matching subject
-// size between layers so they align 1:1).
 const fragSrc = `
 precision mediump float;
 
 uniform sampler2D uColorTexture;
-uniform sampler2D uDepthMap;
 uniform sampler2D uForeground;
-
-uniform vec2 uGyroVector;       // -1..1 horizontal/vertical tilt
-uniform float uRotation;        // max rotation angle (radians)
-uniform float uDepthScale;      // depth push strength
-uniform float uPerspective;     // perspective foreshortening
-uniform float uPan;             // parallax pan strength (pivot translation)
-uniform float uFocusDepth;      // pivot depth value
-uniform float uBlur;
-uniform vec2 uCoverScale;
-uniform vec2 uCoverOffset;
+uniform sampler2D uDepthMap;
+uniform int uLayer;
 uniform int uShowDepth;
+uniform int uWireframe;
 
 varying vec2 vUv;
-
-// Sample depth with 9-tap blur to soften edges
-float sampleDepth(vec2 uv, float b) {
-  float d = 0.0;
-  d += texture2D(uDepthMap, uv).r * 4.0;
-  d += texture2D(uDepthMap, uv + vec2( b, 0.0)).r * 2.0;
-  d += texture2D(uDepthMap, uv + vec2(-b, 0.0)).r * 2.0;
-  d += texture2D(uDepthMap, uv + vec2(0.0,  b)).r * 2.0;
-  d += texture2D(uDepthMap, uv + vec2(0.0, -b)).r * 2.0;
-  d += texture2D(uDepthMap, uv + vec2( b,  b)).r;
-  d += texture2D(uDepthMap, uv + vec2(-b,  b)).r;
-  d += texture2D(uDepthMap, uv + vec2( b, -b)).r;
-  d += texture2D(uDepthMap, uv + vec2(-b, -b)).r;
-  return d / 16.0;
-}
-
-// Project a UV through 3D rotation + perspective.
-// Returns the source UV that should be sampled at this fragment.
-vec2 perspectiveWarp(vec2 uv) {
-  // Sample depth at undisplaced position
-  float depth = sampleDepth(uv, uBlur);
-
-  // Invert: far pixels (dark, low depth) get MORE displacement.
-  // Near pixels (bright, high depth) get LESS displacement.
-  // Focus depth → zero displacement (subject locked).
-  float relZ = (uFocusDepth - depth) * uDepthScale;
-
-  // Treat fragment as a point at (x-0.5, y-0.5, relZ) in camera space
-  vec2 c = uv - 0.5;
-  vec3 p = vec3(c.x, c.y, relZ);
-
-  // Yaw: rotate around vertical axis (horizontal tilt)
-  float yaw = uGyroVector.x * uRotation;
-  float cy = cos(yaw), sy = sin(yaw);
-  p = vec3(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z);
-
-  // Pitch: rotate around horizontal axis (vertical tilt)
-  float pitch = -uGyroVector.y * uRotation;
-  float cp = cos(pitch), sp = sin(pitch);
-  p = vec3(p.x, cp * p.y - sp * p.z, sp * p.y + cp * p.z);
-
-  // Perspective project (z>0 = closer to camera, pushes outward)
-  float zDiv = 1.0 - p.z * uPerspective;
-  zDiv = max(zDiv, 0.1); // avoid div by zero / inversion
-  vec2 projected = p.xy / zDiv + 0.5;
-
-  // Parallax pivot pan: shift sample position based on relative depth.
-  // Behind focus plane (relZ < 0, darker depth) → pans WITH gyro direction.
-  // In front of focus plane (relZ > 0, brighter depth) → pans AGAINST gyro.
-  // At focus plane (relZ ≈ 0) → no pan, subject locked in place.
-  // (Inverse-warp: we shift sample UV opposite to the perceived motion,
-  //  so closer pixels read from gyro direction and farther read against.)
-  vec2 panOffset = uGyroVector * relZ * uPan;
-  projected += panOffset;
-
-  return projected;
-}
+varying float vDepth;
 
 void main() {
-  // Cover fit
-  vec2 uv = vUv * uCoverScale + uCoverOffset;
-
-  // Show depth map mode — raw texture, no processing
-  if (uShowDepth == 1) {
-    gl_FragColor = texture2D(uDepthMap, uv);
+  if (uWireframe == 1) {
+    gl_FragColor = vec4(0.2, 0.8, 0.4, 1.0);
     return;
   }
 
-  // Reverse-warp: figure out where in source to read for this output pixel
-  vec2 srcUv = perspectiveWarp(uv);
+  if (uShowDepth == 1) {
+    gl_FragColor = vec4(vec3(vDepth), 1.0);
+    return;
+  }
 
-  // Soft fade at edges to hide black
-  vec2 edge = min(srcUv, 1.0 - srcUv);
-  float fade = smoothstep(0.0, 0.04, min(edge.x, edge.y));
-  srcUv = mix(uv, srcUv, fade);
-
-  // Sample background and foreground at the same warped UV — same scale
-  vec3 bg = texture2D(uColorTexture, srcUv).rgb;
-  vec4 fg = texture2D(uForeground, srcUv);
-
-  // Composite
-  vec3 finalColor = mix(bg, fg.rgb, fg.a);
-  gl_FragColor = vec4(finalColor, 1.0);
+  if (uLayer == 0) {
+    gl_FragColor = vec4(texture2D(uColorTexture, vUv).rgb, 1.0);
+  } else {
+    vec4 fg = texture2D(uForeground, vUv);
+    if (fg.a < 0.01) discard;
+    gl_FragColor = vec4(fg.rgb, 1.0);
+  }
 }
 `;
 
-// ─── Compile Shaders ───
+// ─── Compile ───
 function createShader(type, src) {
   const s = gl.createShader(type);
   gl.shaderSource(s, src);
@@ -317,49 +272,70 @@ if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
 }
 gl.useProgram(program);
 
-// ─── Geometry ───
-const verts = new Float32Array([
-  -1, -1,   1, -1,  -1,  1,
-  -1,  1,   1, -1,   1,  1,
-]);
-const buf = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+// ─── Attributes & Uniforms ───
+const aGridPos = gl.getAttribLocation(program, 'aGridPos');
 
-const aPosition = gl.getAttribLocation(program, 'aPosition');
-gl.enableVertexAttribArray(aPosition);
-gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
-
-// ─── Uniform Locations ───
 const u = {
-  color: gl.getUniformLocation(program, 'uColorTexture'),
-  depth: gl.getUniformLocation(program, 'uDepthMap'),
-  fg: gl.getUniformLocation(program, 'uForeground'),
-  gyro: gl.getUniformLocation(program, 'uGyroVector'),
-  rotation: gl.getUniformLocation(program, 'uRotation'),
-  depthScale: gl.getUniformLocation(program, 'uDepthScale'),
-  perspective: gl.getUniformLocation(program, 'uPerspective'),
-  pan: gl.getUniformLocation(program, 'uPan'),
-  focus: gl.getUniformLocation(program, 'uFocusDepth'),
-  blur: gl.getUniformLocation(program, 'uBlur'),
+  depthMap: gl.getUniformLocation(program, 'uDepthMap'),
+  colorTex: gl.getUniformLocation(program, 'uColorTexture'),
+  fgTex: gl.getUniformLocation(program, 'uForeground'),
+  heightScale: gl.getUniformLocation(program, 'uHeightScale'),
+  focusDepth: gl.getUniformLocation(program, 'uFocusDepth'),
+  fgLift: gl.getUniformLocation(program, 'uFgLift'),
+  fgHeight: gl.getUniformLocation(program, 'uFgHeight'),
+  layer: gl.getUniformLocation(program, 'uLayer'),
+  mvp: gl.getUniformLocation(program, 'uMVP'),
   coverScale: gl.getUniformLocation(program, 'uCoverScale'),
   coverOffset: gl.getUniformLocation(program, 'uCoverOffset'),
   showDepth: gl.getUniformLocation(program, 'uShowDepth'),
+  wireframe: gl.getUniformLocation(program, 'uWireframe'),
 };
 
-// Bind texture units
-gl.uniform1i(u.color, 0);
-gl.uniform1i(u.depth, 1);
-gl.uniform1i(u.fg, 2);
+// Texture units
+gl.uniform1i(u.colorTex, 0);
+gl.uniform1i(u.depthMap, 1);
+gl.uniform1i(u.fgTex, 2);
 
-gl.uniform2f(u.gyro, 0, 0);
-gl.uniform1f(u.rotation, config.rotation);
-gl.uniform1f(u.depthScale, config.depthScale);
-gl.uniform1f(u.perspective, config.perspective);
-gl.uniform1f(u.pan, config.pan);
-gl.uniform1f(u.focus, config.focusDepth);
-gl.uniform1f(u.blur, config.blur);
-gl.uniform1i(u.showDepth, 0);
+// ─── Generate Grid Mesh ───
+function generateGrid(res) {
+  const verts = new Float32Array((res + 1) * (res + 1) * 2);
+  let vi = 0;
+  for (let y = 0; y <= res; y++) {
+    for (let x = 0; x <= res; x++) {
+      verts[vi++] = x / res;
+      verts[vi++] = y / res;
+    }
+  }
+
+  const numTris = res * res * 6;
+  const indices = extUint ? new Uint32Array(numTris) : new Uint16Array(numTris);
+  let ii = 0;
+  for (let y = 0; y < res; y++) {
+    for (let x = 0; x < res; x++) {
+      const tl = y * (res + 1) + x;
+      const tr = tl + 1;
+      const bl = tl + (res + 1);
+      const br = bl + 1;
+      indices[ii++] = tl; indices[ii++] = bl; indices[ii++] = tr;
+      indices[ii++] = tr; indices[ii++] = bl; indices[ii++] = br;
+    }
+  }
+
+  return { verts, indices, numIndices: numTris };
+}
+
+const mesh = generateGrid(GRID);
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, mesh.verts, gl.STATIC_DRAW);
+
+const ibo = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
+
+gl.enableVertexAttribArray(aGridPos);
+gl.vertexAttribPointer(aGridPos, 2, gl.FLOAT, false, 0, 0);
 
 // ─── Texture Loading ───
 let imgNaturalW = 0, imgNaturalH = 0;
@@ -401,6 +377,9 @@ loadTexture('depth.png', 1, null);
 loadTexture('foreground.png', 2, null);
 
 // ─── Cover UV ───
+let coverScale = [1, 1];
+let coverOffset = [0, 0];
+
 function computeCoverUV(imgW, imgH, canvasW, canvasH) {
   const ia = imgW / imgH;
   const ca = canvasW / canvasH;
@@ -415,14 +394,64 @@ function computeCoverUV(imgW, imgH, canvasW, canvasH) {
   return { sx, sy, ox, oy };
 }
 
+// ─── Matrix Math (minimal, no dependencies) ───
+function mat4Perspective(fovDeg, aspect, near, far) {
+  const f = 1.0 / Math.tan(fovDeg * Math.PI / 360);
+  const nf = 1 / (near - far);
+  return new Float32Array([
+    f / aspect, 0, 0, 0,
+    0, f, 0, 0,
+    0, 0, (far + near) * nf, -1,
+    0, 0, 2 * far * near * nf, 0
+  ]);
+}
+
+function mat4LookAt(eye, target, up) {
+  const zx = eye[0] - target[0], zy = eye[1] - target[1], zz = eye[2] - target[2];
+  let len = Math.hypot(zx, zy, zz);
+  const z = [zx/len, zy/len, zz/len];
+
+  const xx = up[1]*z[2] - up[2]*z[1];
+  const xy = up[2]*z[0] - up[0]*z[2];
+  const xz = up[0]*z[1] - up[1]*z[0];
+  len = Math.hypot(xx, xy, xz);
+  const x = [xx/len, xy/len, xz/len];
+
+  const y = [z[1]*x[2] - z[2]*x[1], z[2]*x[0] - z[0]*x[2], z[0]*x[1] - z[1]*x[0]];
+
+  return new Float32Array([
+    x[0], y[0], z[0], 0,
+    x[1], y[1], z[1], 0,
+    x[2], y[2], z[2], 0,
+    -(x[0]*eye[0]+x[1]*eye[1]+x[2]*eye[2]),
+    -(y[0]*eye[0]+y[1]*eye[1]+y[2]*eye[2]),
+    -(z[0]*eye[0]+z[1]*eye[1]+z[2]*eye[2]),
+    1
+  ]);
+}
+
+function mat4Multiply(a, b) {
+  const out = new Float32Array(16);
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      out[j * 4 + i] =
+        a[i] * b[j*4] + a[4+i] * b[j*4+1] + a[8+i] * b[j*4+2] + a[12+i] * b[j*4+3];
+    }
+  }
+  return out;
+}
+
+// ─── Resize ───
+let aspect = 1;
 function handleResize() {
   canvas.width  = canvas.offsetWidth  * devicePixelRatio;
   canvas.height = canvas.offsetHeight * devicePixelRatio;
   gl.viewport(0, 0, canvas.width, canvas.height);
+  aspect = canvas.width / canvas.height;
   if (imgNaturalW > 0) {
     const c = computeCoverUV(imgNaturalW, imgNaturalH, canvas.width, canvas.height);
-    gl.uniform2f(u.coverScale, c.sx, c.sy);
-    gl.uniform2f(u.coverOffset, c.ox, c.oy);
+    coverScale = [c.sx, c.sy];
+    coverOffset = [c.ox, c.oy];
   }
   needsRedraw = true;
 }
@@ -450,7 +479,6 @@ function initSensors() {
     overlay.classList.add('hidden');
     startGyro();
   }
-
   setTimeout(() => {
     if (!gyroActive) {
       window.addEventListener('mousemove', e => {
@@ -471,6 +499,48 @@ function startGyro() {
   });
 }
 
+// ─── Render ───
+const indexType = extUint ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+
+function render() {
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+
+  // Camera orbit: orbit around (0,0,0) based on gyro
+  const orbitH = current.x * config.orbitX * Math.PI / 180;
+  const orbitV = current.y * config.orbitY * Math.PI / 180;
+
+  const camX = Math.sin(orbitH) * config.camDist;
+  const camY = -Math.sin(orbitV) * config.camDist;
+  const camZ = Math.cos(orbitH) * Math.cos(orbitV) * config.camDist;
+
+  const view = mat4LookAt([camX, camY, camZ], [0, 0, 0], [0, 1, 0]);
+  const proj = mat4Perspective(config.fov, aspect, 0.01, 100);
+  const mvp = mat4Multiply(proj, view);
+
+  gl.uniformMatrix4fv(u.mvp, false, mvp);
+  gl.uniform2f(u.coverScale, coverScale[0], coverScale[1]);
+  gl.uniform2f(u.coverOffset, coverOffset[0], coverOffset[1]);
+  gl.uniform1f(u.heightScale, config.heightScale);
+  gl.uniform1f(u.focusDepth, config.focusDepth);
+  gl.uniform1f(u.fgLift, config.fgLift);
+  gl.uniform1f(u.fgHeight, config.fgHeight);
+  gl.uniform1i(u.showDepth, config.showDepth ? 1 : 0);
+  gl.uniform1i(u.wireframe, config.wireframe ? 1 : 0);
+
+  const drawMode = config.wireframe ? gl.LINES : gl.TRIANGLES;
+
+  // Draw background mesh (layer 0)
+  gl.uniform1i(u.layer, 0);
+  gl.drawElements(drawMode, mesh.numIndices, indexType, 0);
+
+  // Draw foreground mesh (layer 1) — on top, with alpha discard
+  gl.uniform1i(u.layer, 1);
+  gl.drawElements(drawMode, mesh.numIndices, indexType, 0);
+}
+
 // ─── rAF Loop ───
 function loop() {
   requestAnimationFrame(loop);
@@ -478,47 +548,48 @@ function loop() {
   current.x += (target.x - current.x) * config.smoothing;
   current.y += (target.y - current.y) * config.smoothing;
 
-  if (Math.abs(target.x - current.x) < 0.0005 &&
-      Math.abs(target.y - current.y) < 0.0005 &&
+  if (Math.abs(target.x - current.x) < 0.0003 &&
+      Math.abs(target.y - current.y) < 0.0003 &&
       !needsRedraw) return;
   needsRedraw = false;
 
-  gl.uniform2f(u.gyro, current.x, current.y);
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  render();
 }
 
 // ─── Controls ───
-function bindSlider(id, valId, prop, uniformLoc) {
+function bindSlider(id, valId, prop) {
   const slider = document.getElementById(id);
   const valSpan = document.getElementById(valId);
   slider.addEventListener('input', () => {
     const v = parseFloat(slider.value);
     config[prop] = v;
     valSpan.textContent = v;
-    if (uniformLoc) gl.uniform1f(uniformLoc, v);
     needsRedraw = true;
   });
 }
 
-bindSlider('ctrl-pan',    'val-pan',    'pan',         u.pan);
-bindSlider('ctrl-rot',    'val-rot',    'rotation',    u.rotation);
-bindSlider('ctrl-depth',  'val-depth',  'depthScale',  u.depthScale);
-bindSlider('ctrl-persp',  'val-persp',  'perspective', u.perspective);
-bindSlider('ctrl-focus',  'val-focus',  'focusDepth',  u.focus);
-bindSlider('ctrl-blur',   'val-blur',   'blur',        u.blur);
-bindSlider('ctrl-smooth', 'val-smooth', 'smoothing',   null);
+bindSlider('ctrl-orbitX',   'val-orbitX',   'orbitX');
+bindSlider('ctrl-orbitY',   'val-orbitY',   'orbitY');
+bindSlider('ctrl-fov',      'val-fov',      'fov');
+bindSlider('ctrl-camDist',  'val-camDist',  'camDist');
+bindSlider('ctrl-height',   'val-height',   'heightScale');
+bindSlider('ctrl-focus',    'val-focus',    'focusDepth');
+bindSlider('ctrl-fgHeight', 'val-fgHeight', 'fgHeight');
+bindSlider('ctrl-fgLift',   'val-fgLift',   'fgLift');
+bindSlider('ctrl-smooth',   'val-smooth',   'smoothing');
 
+document.getElementById('ctrl-wireframe').addEventListener('change', (e) => {
+  config.wireframe = e.target.checked;
+  needsRedraw = true;
+});
 document.getElementById('ctrl-depth-view').addEventListener('change', (e) => {
   config.showDepth = e.target.checked;
-  gl.uniform1i(u.showDepth, config.showDepth ? 1 : 0);
   needsRedraw = true;
 });
 
 // ─── Collapsible Panel ───
-const controlsEl = document.getElementById('controls');
-const headerEl = document.getElementById('controls-header');
-headerEl.addEventListener('click', () => {
-  controlsEl.classList.toggle('collapsed');
+document.getElementById('controls-header').addEventListener('click', () => {
+  document.getElementById('controls').classList.toggle('collapsed');
 });
 </script>
 </body>

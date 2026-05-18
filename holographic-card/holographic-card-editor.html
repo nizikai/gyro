@@ -111,6 +111,9 @@
       -webkit-mask:
         linear-gradient(#fff 0 0) content-box,
         linear-gradient(#fff 0 0);
+      mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
       -webkit-mask-composite: xor;
       mask-composite: exclude;
       pointer-events: none;
@@ -848,19 +851,16 @@ class MouseController {
     this._returnRafId  = null;
     this._boundMouseMove  = this._onMouseMove.bind(this);
     this._boundMouseLeave = this._onMouseLeave.bind(this);
-    this._boundTouchMove  = this._onTouchMove.bind(this);
   }
 
   start() {
     this._element.addEventListener('mousemove',  this._boundMouseMove);
     this._element.addEventListener('mouseleave', this._boundMouseLeave);
-    this._element.addEventListener('touchmove',  this._boundTouchMove, { passive: true });
   }
 
   stop() {
     this._element.removeEventListener('mousemove',  this._boundMouseMove);
     this._element.removeEventListener('mouseleave', this._boundMouseLeave);
-    this._element.removeEventListener('touchmove',  this._boundTouchMove);
     if (this._returnRafId !== null) {
       cancelAnimationFrame(this._returnRafId);
       this._returnRafId = null;
@@ -878,18 +878,6 @@ class MouseController {
   }
 
   _onMouseLeave() { this._startReturnAnimation(); }
-
-  _onTouchMove(e) {
-    if (!e.touches || e.touches.length === 0) return;
-    if (this._returnRafId !== null) { cancelAnimationFrame(this._returnRafId); this._returnRafId = null; }
-    const touch = e.touches[0];
-    const rect  = this._element.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const x = ((touch.clientX - rect.left) / rect.width  - 0.5) * 2;
-    const y = ((touch.clientY - rect.top)  / rect.height - 0.5) * 2;
-    this._currentTilt = { x, y };
-    this._onTilt({ x, y });
-  }
 
   _startReturnAnimation() {
     if (this._returnRafId !== null) { cancelAnimationFrame(this._returnRafId); this._returnRafId = null; }
@@ -1001,7 +989,8 @@ class HolographicCard {
       pendingTilt:  { x: 0, y: 0 },
       isRunning:    false,
       rafId:        null,
-      mode:         'orientation',
+      mode:         'uninitialized',
+      inputMode:    'desktop-mouse',
       isVisible:    true,
       reducedMotion: false,
     };
@@ -1036,15 +1025,25 @@ class HolographicCard {
     });
     this._specular.init();
 
-    this._permission = new PermissionManager(
-      () => { this._startOrientationController(); },
-      () => { this._activateFallback(); }
-    );
+    this._state.inputMode = this._detectInputMode();
 
-    if (this._permission.needsPermission()) {
-      this._permission.showPrompt(this._cardEl);
+    if (this._state.inputMode === 'desktop-mouse') {
+      this._state.mode = 'desktop-mouse';
+      this._mouse = new MouseController(this._wrapperEl, this._onTiltUpdate);
+      this._mouse.start();
     } else {
-      this._startOrientationController();
+      this._state.mode = 'mobile-gyro';
+
+      this._permission = new PermissionManager(
+        () => { this._startOrientationController(); },
+        () => { this._activateFallback(); }
+      );
+
+      if (this._permission.needsPermission()) {
+        this._permission.showPrompt(this._cardEl);
+      } else {
+        this._startOrientationController();
+      }
     }
 
     if (typeof IntersectionObserver !== 'undefined') {
@@ -1084,6 +1083,17 @@ class HolographicCard {
     this._cardEl    = null;
   }
 
+  _detectInputMode() {
+    if (typeof navigator.userAgentData === 'object' &&
+        typeof navigator.userAgentData.mobile === 'boolean') {
+      return navigator.userAgentData.mobile ? 'mobile-gyro' : 'desktop-mouse';
+    }
+
+    const ua = navigator.userAgent || '';
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Windows Phone|Mobile/i.test(ua);
+    return isMobileUA ? 'mobile-gyro' : 'desktop-mouse';
+  }
+
   _startOrientationController() {
     this._orientation = new OrientationController(this._onTiltUpdate);
     this._orientation.start();
@@ -1114,7 +1124,13 @@ class HolographicCard {
       this._state.rafId = null;
       return;
     }
-    const tilt = this._state.reducedMotion ? { x: 0, y: 0 } : this._state.pendingTilt;
+    const targetTilt = this._state.reducedMotion ? { x: 0, y: 0 } : this._state.pendingTilt;
+    const tilt = this._state.mode === 'desktop-mouse' && !this._state.reducedMotion
+      ? {
+          x: this._state.currentTilt.x + (targetTilt.x - this._state.currentTilt.x) * 0.28,
+          y: this._state.currentTilt.y + (targetTilt.y - this._state.currentTilt.y) * 0.28,
+        }
+      : targetTilt;
     this._writeCSSVars(tilt);
     this._state.currentTilt = tilt;
     this._state.rafId = requestAnimationFrame(this._tick);
@@ -1122,10 +1138,17 @@ class HolographicCard {
 
   _activateFallback() {
     if (this._orientation) { this._orientation.stop(); this._orientation = null; }
-    if (this._state.mode === 'fallback') return;
-    this._state.mode = 'fallback';
-    this._mouse = new MouseController(this._cardEl, this._onTiltUpdate);
-    this._mouse.start();
+    if (this._state.inputMode === 'mobile-gyro') {
+      this._state.mode = 'mobile-gyro-unavailable';
+      this._state.pendingTilt = { x: 0, y: 0 };
+      return;
+    }
+    if (this._state.mode === 'desktop-mouse') return;
+    this._state.mode = 'desktop-mouse';
+    if (!this._mouse) {
+      this._mouse = new MouseController(this._cardEl, this._onTiltUpdate);
+      this._mouse.start();
+    }
   }
 }
 

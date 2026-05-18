@@ -97,6 +97,9 @@
       -webkit-mask:
         linear-gradient(#fff 0 0) content-box,
         linear-gradient(#fff 0 0);
+      mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
       -webkit-mask-composite: xor;
       mask-composite: exclude;
       pointer-events: none;
@@ -512,20 +515,20 @@
     }
 
     /**
-     * MouseController — mousemove/touchmove → TiltInput.
+     * MouseController — mouse hover → TiltInput.
      *
-     * Reads mouse and touch events relative to the card element and converts
-     * cursor/touch position into a normalized TiltInput value in the range [-1, 1]
-     * on each axis. On mouseleave, runs a 600ms ease-out return animation back to
-     * the neutral tilt {0, 0}.
+     * Reads mouse events relative to the card element and converts cursor
+     * position into a normalized TiltInput value in the range [-1, 1] on each
+     * axis. On mouseleave, runs a 600ms ease-out return animation back to the
+     * neutral tilt {0, 0}.
      *
-     * Requirements: 3.1, 3.2, 3.3, 3.4
+     * Requirements: 3.1, 3.2, 3.3
      */
     class MouseController {
       /**
        * @param {HTMLElement} element - The card DOM element to listen on.
        * @param {function(TiltInput): void} onTilt - Callback invoked with a
-       *   normalized TiltInput on each mouse/touch move event and each animation frame
+       *   normalized TiltInput on each mouse move event and each animation frame
        *   during the return animation.
        */
       constructor(element, onTilt) {
@@ -541,18 +544,16 @@
         // Bind handlers once so the same references can be removed in stop().
         this._boundMouseMove  = this._onMouseMove.bind(this);
         this._boundMouseLeave = this._onMouseLeave.bind(this);
-        this._boundTouchMove  = this._onTouchMove.bind(this);
       }
 
       /**
-       * Attaches mousemove, mouseleave, and touchmove listeners to the card element.
+       * Attaches mousemove and mouseleave listeners to the card element.
        *
-       * Requirement 3.1, 3.4
+       * Requirement 3.1
        */
       start() {
         this._element.addEventListener('mousemove',  this._boundMouseMove);
         this._element.addEventListener('mouseleave', this._boundMouseLeave);
-        this._element.addEventListener('touchmove',  this._boundTouchMove, { passive: true });
       }
 
       /**
@@ -561,7 +562,6 @@
       stop() {
         this._element.removeEventListener('mousemove',  this._boundMouseMove);
         this._element.removeEventListener('mouseleave', this._boundMouseLeave);
-        this._element.removeEventListener('touchmove',  this._boundTouchMove);
 
         if (this._returnRafId !== null) {
           cancelAnimationFrame(this._returnRafId);
@@ -611,38 +611,6 @@
        */
       _onMouseLeave() {
         this._startReturnAnimation();
-      }
-
-      /**
-       * Handles a touchmove event.
-       *
-       * Uses the first touch point (e.touches[0]) in place of mouse coordinates,
-       * applying the same bounding-rect mapping as _onMouseMove().
-       *
-       * Requirement 3.4
-       *
-       * @param {TouchEvent} e
-       */
-      _onTouchMove(e) {
-        if (!e.touches || e.touches.length === 0) return;
-
-        // Cancel any in-progress return animation — the user is actively touching.
-        if (this._returnRafId !== null) {
-          cancelAnimationFrame(this._returnRafId);
-          this._returnRafId = null;
-        }
-
-        const touch = e.touches[0];
-        const rect  = this._element.getBoundingClientRect();
-
-        // Guard against zero-dimension rects.
-        if (rect.width === 0 || rect.height === 0) return;
-
-        const x = -((touch.clientX - rect.left) / rect.width  - 0.5) * 2;
-        const y = ((touch.clientY - rect.top)  / rect.height - 0.5) * 2;
-
-        this._currentTilt = { x, y };
-        this._onTilt({ x, y });
       }
 
       /**
@@ -726,10 +694,10 @@
        * share the same permission. We check DeviceOrientationEvent first (more direct),
        * then fall back to DeviceMotionEvent for broader compatibility.
        *
-       * IMPORTANT: This permission gate only works over HTTPS. Over HTTP, iOS Safari
-       * will not expose requestPermission as a function, so needsPermission() returns
-       * false but deviceorientation events also won't fire — the 500ms fallback timer
-       * in OrientationController will activate MouseController instead.
+      * IMPORTANT: This permission gate only works over HTTPS. Over HTTP, iOS Safari
+      * will not expose requestPermission as a function, so needsPermission() returns
+      * false but deviceorientation events also won't fire. In that case, the
+      * coordinator handles unavailable gyro input based on device mode.
        *
        * Requirement 2.1
        *
@@ -907,7 +875,8 @@
           pendingTilt:  { x: 0, y: 0 }, // latest tilt from input source
           isRunning:    false,           // rAF loop active
           rafId:        null,            // current requestAnimationFrame handle
-          mode:         'orientation',   // 'orientation' | 'fallback'
+          mode:         'uninitialized',  // 'mobile-gyro' | 'mobile-gyro-unavailable' | 'desktop-mouse'
+          inputMode:    'desktop-mouse', // selected in init() via _detectInputMode()
           isVisible:    true,            // IntersectionObserver state
           reducedMotion: false,          // prefers-reduced-motion
         };
@@ -961,25 +930,33 @@
         });
         this._specular.init();
 
-        // ── 4. Set up PermissionManager ─────────────────────────────────────
-        // Requirements: 2.1–2.5
-        this._permission = new PermissionManager(
-          // onGranted — start OrientationController
-          () => {
-            this._startOrientationController();
-          },
-          // onDenied — fall back to mouse
-          () => {
-            this._activateFallback();
-          }
-        );
+        // ── 4. Select input mode ───────────────────────────────────────────
+        // Mobile: gyro only. Desktop: mouse hover only.
+        this._state.inputMode = this._detectInputMode();
 
-        if (this._permission.needsPermission()) {
-          // iOS 13+: show tap overlay; OrientationController starts after grant.
-          this._permission.showPrompt(this._cardEl);
+        if (this._state.inputMode === 'desktop-mouse') {
+          this._state.mode = 'desktop-mouse';
+          // Track hover on the non-rotating wrapper to avoid feedback jitter
+          // from reading bounds on the transformed card itself.
+          this._mouse = new MouseController(this._wrapperEl, this._onTiltUpdate);
+          this._mouse.start();
         } else {
-          // Non-iOS or older iOS: start orientation directly.
-          this._startOrientationController();
+          this._state.mode = 'mobile-gyro';
+
+          this._permission = new PermissionManager(
+            () => {
+              this._startOrientationController();
+            },
+            () => {
+              this._activateFallback();
+            }
+          );
+
+          if (this._permission.needsPermission()) {
+            this._permission.showPrompt(this._cardEl);
+          } else {
+            this._startOrientationController();
+          }
         }
 
         // ── 5. Set up IntersectionObserver ──────────────────────────────────
@@ -1059,6 +1036,23 @@
       }
 
       // ─── Private methods ─────────────────────────────────────────────────────
+
+      /**
+       * Detects whether this environment should use mobile gyro mode or desktop
+       * mouse-hover mode.
+       *
+       * @returns {'mobile-gyro' | 'desktop-mouse'}
+       */
+      _detectInputMode() {
+        if (typeof navigator.userAgentData === 'object' &&
+            typeof navigator.userAgentData.mobile === 'boolean') {
+          return navigator.userAgentData.mobile ? 'mobile-gyro' : 'desktop-mouse';
+        }
+
+        const ua = navigator.userAgent || '';
+        const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Windows Phone|Mobile/i.test(ua);
+        return isMobileUA ? 'mobile-gyro' : 'desktop-mouse';
+      }
 
       /**
        * Instantiates OrientationController and starts it.
@@ -1155,9 +1149,18 @@
 
         // ── 2. Determine effective tilt ─────────────────────────────────────
         // Requirement 7.6: when reducedMotion is active, keep the card flat.
-        const tilt = this._state.reducedMotion
+        const targetTilt = this._state.reducedMotion
           ? { x: 0, y: 0 }
           : this._state.pendingTilt;
+
+        // Desktop hover benefits from a light low-pass filter to remove
+        // corner jitter without changing mobile gyro responsiveness.
+        const tilt = this._state.mode === 'desktop-mouse' && !this._state.reducedMotion
+          ? {
+              x: this._state.currentTilt.x + (targetTilt.x - this._state.currentTilt.x) * 0.28,
+              y: this._state.currentTilt.y + (targetTilt.y - this._state.currentTilt.y) * 0.28,
+            }
+          : targetTilt;
 
         // ── 3. Write CSS custom properties ──────────────────────────────────
         this._writeCSSVars(tilt);
@@ -1170,12 +1173,11 @@
       }
 
       /**
-       * Switches the input source from OrientationController to MouseController.
+       * Handles unavailable orientation input.
        *
-       * Called when:
-       *   - No deviceorientation event fires within 500ms (Requirement 1.5)
-       *   - The user denies iOS permission (Requirement 2.3)
-       *   - DeviceMotionEvent.requestPermission throws (Requirement 2.5)
+       * On mobile, input remains gyro-only by design, so fallback keeps the card
+       * static when gyro is unavailable or denied. On desktop, this ensures the
+       * mouse controller is active.
        *
        * Requirements: 1.5, 2.3, 2.5, 3.1
        */
@@ -1186,14 +1188,21 @@
           this._orientation = null;
         }
 
-        // Only activate MouseController once — guard against double-calls.
-        if (this._state.mode === 'fallback') return;
-        this._state.mode = 'fallback';
+        // Mobile mode is gyro-only: do not attach mouse/touch fallback handlers.
+        if (this._state.inputMode === 'mobile-gyro') {
+          this._state.mode = 'mobile-gyro-unavailable';
+          this._state.pendingTilt = { x: 0, y: 0 };
+          return;
+        }
 
-        // Instantiate and start MouseController.
-        // Requirement 3.1
-        this._mouse = new MouseController(this._cardEl, this._onTiltUpdate);
-        this._mouse.start();
+        // Desktop mode: ensure MouseController is active.
+        if (this._state.mode === 'desktop-mouse') return;
+        this._state.mode = 'desktop-mouse';
+
+        if (!this._mouse) {
+          this._mouse = new MouseController(this._cardEl, this._onTiltUpdate);
+          this._mouse.start();
+        }
       }
     }
 
@@ -1549,14 +1558,14 @@
       window.destroy = () => card.destroy();
 
       // Warn in console if served over HTTP on a mobile device — gyroscope
-      // permission requires HTTPS on iOS Safari. The card will still work
-      // via touch-drag fallback, but orientation tracking won't be available.
+      // permission requires HTTPS on iOS Safari. In mobile gyro-only mode,
+      // orientation unavailability means the card remains static.
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       if (isMobile && location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         console.warn(
           '[HolographicCard] Served over HTTP on a mobile device. ' +
           'iOS Safari requires HTTPS for DeviceOrientationEvent permission. ' +
-          'Gyroscope tracking will not be available — touch-drag fallback is active.'
+          'Gyroscope tracking will not be available and the card will remain static.'
         );
       }
     }

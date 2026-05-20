@@ -4,53 +4,216 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Holographic Card Editor</title>
+  <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --ui-bg: #ddd4c5;
+      --ui-bg-soft: #f3ece0;
+      --ui-panel: rgba(245, 240, 232, 0.76);
+      --ui-card: rgba(255, 255, 255, 0.48);
+      --ui-border: rgba(46, 38, 29, 0.20);
+      --ui-border-strong: rgba(46, 38, 29, 0.40);
+      --ui-text: #16130f;
+      --ui-muted: #5f584d;
+      --ui-faint: #8e8577;
+      --ui-accent: #1f1a14;
+      --ui-accent-strong: #100d09;
+      --ui-glow: rgba(191, 171, 137, 0.16);
+      --ui-shadow: rgba(32, 24, 16, 0.12);
+      --scene-wood-url: none;
+      --scene-board-url: none;
+    }
+
     html, body {
       height: 100%;
-      font-family: 'Geist Mono', 'Courier New', monospace;
-      background: #0a0a0a;
-      color: #e0e0e0;
+      font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background:
+        radial-gradient(circle at 18% 10%, rgba(255,255,255,0.58), transparent 42%),
+        radial-gradient(circle at 82% 84%, rgba(116, 83, 46, 0.18), transparent 40%),
+        linear-gradient(158deg, #e5dbcc, #cec2af);
+      color: var(--ui-text);
       overflow: hidden;
     }
 
-    /* ── Layout ── */
-    .editor-layout {
-      display: flex;
-      height: 100vh;
-      width: 100vw;
+    body {
+      position: relative;
     }
 
-    /* ── Preview panel ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.08;
+      background-image:
+        repeating-linear-gradient(
+          135deg,
+          rgba(255,255,255,0.45) 0 1px,
+          transparent 1px 14px
+        );
+      z-index: 0;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 76% 18%, rgba(255,255,255,0.36), transparent 44%),
+        radial-gradient(circle at 24% 82%, rgba(80, 60, 34, 0.12), transparent 44%);
+      z-index: 0;
+    }
+
+    .editor-layout {
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      overflow: hidden;
+      background: transparent;
+      position: relative;
+      z-index: 1;
+    }
+
     .preview-panel {
       flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
-      background: #0a0a0a;
+      --stage-sat: 1;
+      --stage-brightness: 1;
+      --stage-blur: 0px;
+      --stage-scale: 1;
+      background:
+        radial-gradient(circle at 22% 14%, rgba(255, 226, 184, 0.28), transparent 46%),
+        linear-gradient(172deg, rgba(67, 43, 23, 0.26), rgba(31, 19, 10, 0.18)),
+        repeating-linear-gradient(
+          7deg,
+          rgba(151, 109, 67, 0.36) 0 3px,
+          rgba(118, 82, 48, 0.36) 3px 8px,
+          rgba(173, 129, 82, 0.34) 8px 14px,
+          rgba(106, 73, 42, 0.36) 14px 21px
+        ),
+        linear-gradient(140deg, #b58455, #895c36),
+        var(--scene-wood-url);
+      background-size: auto, auto, auto, auto, cover;
+      background-position: center;
       overflow: hidden;
+      transition: background 420ms cubic-bezier(0.22, 0.84, 0.36, 1);
+    }
+
+    .stage-scene-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      display: block;
+      opacity: 1;
+      transform: scale(var(--stage-scale, 1));
+      transform-origin: center;
+      filter:
+        saturate(var(--stage-sat, 1))
+        brightness(var(--stage-brightness, 1))
+        blur(var(--stage-blur, 0px));
+      transition:
+        filter 320ms cubic-bezier(0.22, 0.84, 0.36, 1),
+        transform 560ms cubic-bezier(0.22, 0.84, 0.36, 1),
+        opacity 200ms ease;
+    }
+
+    .preview-panel.has-stage {
+      background: linear-gradient(144deg, #ac7849, #724b2c);
+    }
+
+    .preview-panel.has-stage::before,
+    .preview-panel.has-stage::after {
+      display: none;
+    }
+
+    .preview-panel::before {
+      content: '';
+      position: absolute;
+      inset: 6% 7% 12%;
+      border-radius: 30px;
+      border: 1px solid rgba(66, 44, 22, 0.34);
+      background:
+        linear-gradient(168deg, rgba(249, 242, 230, 0.92), rgba(225, 213, 193, 0.88)),
+        repeating-linear-gradient(
+          -2deg,
+          rgba(109, 88, 58, 0.08) 0 2px,
+          rgba(255,255,255,0.0) 2px 8px
+        ),
+        var(--scene-board-url);
+      background-size: auto, auto, cover;
+      background-position: center;
+      background-blend-mode: normal, multiply, normal;
+      box-shadow:
+        inset 0 2px 0 rgba(255, 255, 255, 0.58),
+        inset 0 -1px 0 rgba(72, 51, 29, 0.24),
+        0 20px 32px rgba(34, 21, 9, 0.34),
+        0 5px 14px rgba(34, 21, 9, 0.24);
+      pointer-events: none;
+    }
+
+    .preview-panel::after {
+      content: '';
+      position: absolute;
+      inset: 6% 7% 12%;
+      border-radius: 30px;
+      pointer-events: none;
+      opacity: 0.55;
+      background:
+        radial-gradient(circle at 12% 10%, rgba(255,255,255,0.46), transparent 24%),
+        radial-gradient(circle at 85% 14%, rgba(255,255,255,0.30), transparent 20%),
+        linear-gradient(182deg, rgba(255,255,255,0.06), rgba(64, 43, 23, 0.08));
     }
 
     .preview-glow {
-      position: absolute;
-      width: 480px;
-      height: 320px;
-      background: radial-gradient(ellipse at center,
-        rgba(0, 212, 170, 0.06) 0%,
-        rgba(100, 80, 255, 0.04) 40%,
-        transparent 70%);
-      pointer-events: none;
-      border-radius: 50%;
+      display: none;
     }
 
     .preview-container {
       position: relative;
-      z-index: 1;
+      z-index: 2;
+      transform-style: preserve-3d;
+      will-change: transform, filter;
+      animation: card-enter 560ms cubic-bezier(0.25, 0.82, 0.34, 1) both;
+      transition:
+        transform 760ms cubic-bezier(0.22, 0.84, 0.36, 1),
+        filter 540ms cubic-bezier(0.22, 0.84, 0.36, 1);
+    }
+
+    .preview-container::after {
+      content: '';
+      position: absolute;
+      inset: -28% -18%;
+      pointer-events: none;
+      opacity: 0;
+      border-radius: 20px;
+      background: linear-gradient(
+        112deg,
+        rgba(255, 255, 255, 0) 36%,
+        rgba(255, 255, 255, 0.58) 50%,
+        rgba(194, 226, 255, 0.32) 56%,
+        rgba(255, 255, 255, 0) 68%
+      );
+      transform: translateX(-72%) rotate(8deg);
+      filter: blur(1.2px);
+      mix-blend-mode: screen;
+    }
+
+    .preview-container.showcase-sweep::after {
+      animation: showcase-sweep 840ms cubic-bezier(0.16, 0.85, 0.26, 1);
     }
 
     /* ── Card styles (copied from holographic-card.html) ── */
@@ -64,25 +227,59 @@
       border-radius: 12px;
       position: relative;
       overflow: visible;
-      will-change: transform;
-      background-color: #1a1a2e;
+      cursor: default;
+      background:
+        linear-gradient(145deg, rgba(18, 30, 46, 0.96), rgba(40, 30, 56, 0.92)),
+        #1a1a2e;
       --tilt-x: 0;
       --tilt-y: 0;
       --holo-angle: 180;
-      --holo-x: 50;
-      --holo-y: 50;
       --spec-x: 50;
       --spec-y: 50;
       --tilt-deg-x: 0;
       --tilt-deg-y: 0;
       --shadow-x: 0;
       --shadow-y: 0;
+      --foil-shift-x: 0%;
+      --foil-shift-y: 0%;
+      --diffraction-opacity: 0.52;
+      --spec-width: 46%;
+      --spec-height: 24%;
+      --spec-rotation: 155deg;
+      --spec-opacity: 1;
+      --edge-top-opacity: 0.12;
+      --edge-right-opacity: 0.10;
+      --edge-bottom-opacity: 0.16;
+      --edge-left-opacity: 0.10;
+      --surface-shadow-x: 0%;
+      --surface-shadow-y: 0%;
+      --surface-darkness: 0.18;
+      --mat-sheen-a: 0.18;
+      --mat-sheen-b: 0.06;
+      --mat-brush: 0.03;
+      --mat-temp-r: 180;
+      --mat-temp-g: 205;
+      --mat-temp-b: 255;
+      --diff-stop-1: rgba(255, 88, 176, 0.20);
+      --diff-stop-2: rgba(255, 232, 116, 0.16);
+      --diff-stop-3: rgba(92, 255, 198, 0.17);
+      --diff-stop-4: rgba(90, 188, 255, 0.18);
+      --diff-stop-5: rgba(182, 118, 255, 0.16);
+      --diff-line-a: 0.05;
+      --diff-line-b: 0.026;
+      --diff-sat: 1.22;
+      --diff-contrast: 1.02;
+      --diff-bright: 1.01;
+      --diff-blur: 0.2px;
+      --material-tint-color: transparent;
+      --material-tint-strength: 0;
       transform-style: preserve-3d;
       transform: rotateX(calc(var(--tilt-deg-x) * 1deg))
                  rotateY(calc(var(--tilt-deg-y) * 1deg));
       box-shadow:
-        calc(var(--shadow-x) * 1px) calc(var(--shadow-y) * 1px) 48px rgba(0,0,0,0.7),
-        calc(var(--shadow-x) * 0.4px) calc(var(--shadow-y) * 0.4px) 16px rgba(0,0,0,0.5);
+        calc(var(--shadow-x) * 0.9px) calc(var(--shadow-y) * 0.9px) 40px rgba(7, 20, 36, 0.34),
+        calc(var(--shadow-x) * 0.3px) calc(var(--shadow-y) * 0.3px) 14px rgba(7, 20, 36, 0.20),
+        0 0 0 1px rgba(208, 227, 255, 0.14) inset;
       transition: none;
     }
 
@@ -91,7 +288,54 @@
       inset: 0;
       border-radius: 12px;
       overflow: hidden;
+      pointer-events: auto;
+    }
+
+    .card-text-item {
+      position: relative;
+      width: fit-content;
+      max-width: 100%;
+      pointer-events: auto;
+      touch-action: none;
+      user-select: none;
+      cursor: grab;
+      border-radius: 4px;
+      outline: 1px solid transparent;
+      outline-offset: 2px;
+      transition:
+        transform 160ms cubic-bezier(0.22, 0.84, 0.36, 1),
+        outline-color 120ms ease,
+        background-color 120ms ease;
+    }
+
+    body:not(.card-only-mode) .card-text-item:hover {
+      outline-color: rgba(232, 242, 255, 0.42);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .card-text-item.is-dragging {
+      cursor: grabbing;
+      outline-color: rgba(232, 242, 255, 0.66);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    body.card-only-mode .card-text-item {
       pointer-events: none;
+      cursor: default;
+      outline-color: transparent;
+      background: transparent;
+    }
+
+    .card-inner-clip::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      z-index: 2;
+      background: var(--material-tint-color, transparent);
+      mix-blend-mode: color;
+      opacity: var(--material-tint-strength, 0);
     }
 
     .card::before {
@@ -120,75 +364,568 @@
       z-index: 5;
     }
 
-    /* ── Controls panel ── */
-    .controls-panel {
-      width: 340px;
-      min-width: 340px;
-      background: #111111;
-      border-left: 1px solid #1e1e1e;
-      display: flex;
-      flex-direction: column;
+    .card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      pointer-events: none;
+      z-index: 1;
+      background: linear-gradient(
+        calc(var(--holo-angle) * 1deg + 30deg),
+        rgba(255, 255, 255, var(--mat-sheen-a)) 0%,
+        rgba(var(--mat-temp-r), var(--mat-temp-g), var(--mat-temp-b), 0.10) 28%,
+        rgba(255, 255, 255, 0.0) 52%,
+        rgba(255, 255, 255, var(--mat-sheen-b)) 100%
+      );
+      mix-blend-mode: screen;
+      opacity: 0.9;
+    }
+
+    .card.feature-no-rim::before {
+      opacity: 0;
+    }
+
+    .realism-layer {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      z-index: 2;
+      pointer-events: none;
+      mix-blend-mode: screen;
+      overflow: hidden;
+      opacity: var(--realism-opacity, 0.78);
+    }
+
+    .realism-layer canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      border-radius: inherit;
+    }
+
+    .grain-layer {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      z-index: 4;
+      pointer-events: none;
+      mix-blend-mode: soft-light;
+      opacity: var(--grain-opacity, 0.05);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='384' height='384'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.12' numOctaves='5' seed='19' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='384' height='384' filter='url(%23g)'/%3E%3C/svg%3E");
+      background-size: 180px 180px;
+      filter: contrast(0.88) brightness(1.08);
+    }
+
+    .holo-sticker {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      z-index: 4;
+      pointer-events: none;
+      border: 1px solid rgba(255,255,255,0.5);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.18) inset,
+        0 10px 18px rgba(0,0,0,0.30);
+      background:
+        radial-gradient(circle at 30% 25%, rgba(255,255,255,0.9) 0 12%, transparent 40%),
+        conic-gradient(
+          from calc(var(--holo-angle) * 1deg),
+          rgba(120, 235, 255, 0.9),
+          rgba(255, 147, 220, 0.85),
+          rgba(164, 255, 182, 0.9),
+          rgba(120, 235, 255, 0.9)
+        );
+      transform: translateZ(8px) rotate(calc(var(--holo-angle) * 0.15deg + 8deg));
+      mix-blend-mode: screen;
       overflow: hidden;
     }
 
+    .holo-sticker::after {
+      content: 'AUTH';
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.24em;
+      color: rgba(255,255,255,0.82);
+      text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+
+    .card.feature-no-grain .grain-layer,
+    .card.feature-no-sticker .holo-sticker,
+    .card.feature-no-realism .realism-layer {
+      display: none;
+    }
+
+    .diffraction-layer {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      z-index: 2;
+      pointer-events: none;
+      background:
+        radial-gradient(
+          ellipse var(--spec-width) var(--spec-height) at calc(var(--spec-x) * 1%) calc(var(--spec-y) * 1%),
+          rgba(255, 255, 255, 0.52) 0%,
+          rgba(255, 255, 255, 0.16) 18%,
+          transparent 48%
+        ),
+        linear-gradient(
+          calc(var(--holo-angle) * 0.42deg + 104deg),
+          transparent 0%,
+          var(--diff-stop-1) 12%,
+          var(--diff-stop-2) 26%,
+          var(--diff-stop-3) 41%,
+          var(--diff-stop-4) 56%,
+          var(--diff-stop-5) 72%,
+          transparent 90%
+        );
+      background-size: 100% 100%, 200% 200%;
+      background-position:
+        center,
+        50% 50%;
+      mix-blend-mode: screen;
+      opacity: var(--diffraction-opacity);
+      filter: saturate(var(--diff-sat)) contrast(var(--diff-contrast)) brightness(var(--diff-bright)) blur(var(--diff-blur));
+      transform: translateZ(7px);
+    }
+
+    .surface-shading-layer {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      z-index: 5;
+      pointer-events: none;
+      background:
+        linear-gradient(
+          90deg,
+          rgba(255,255,255,var(--edge-left-opacity)) 0%,
+          transparent 14%,
+          transparent 84%,
+          rgba(255,255,255,var(--edge-right-opacity)) 100%
+        ),
+        linear-gradient(
+          180deg,
+          rgba(255,255,255,var(--edge-top-opacity)) 0%,
+          transparent 17%,
+          transparent 80%,
+          rgba(0,0,0,var(--edge-bottom-opacity)) 100%
+        ),
+        radial-gradient(
+          ellipse 118% 100% at calc(50% + var(--surface-shadow-x)) calc(50% + var(--surface-shadow-y)),
+          transparent 46%,
+          rgba(0,0,0,var(--surface-darkness)) 100%
+        );
+      mix-blend-mode: soft-light;
+      opacity: 0.92;
+    }
+
+    .card[data-material='brushed-metal'] {
+      --mat-sheen-a: 0.16;
+      --mat-sheen-b: 0.08;
+      --mat-brush: 0.055;
+      --mat-temp-r: 188;
+      --mat-temp-g: 203;
+      --mat-temp-b: 225;
+      --diff-stop-1: rgba(242, 247, 255, 0.04);
+      --diff-stop-2: rgba(223, 234, 248, 0.03);
+      --diff-stop-3: rgba(202, 214, 230, 0.03);
+      --diff-stop-4: rgba(219, 232, 248, 0.03);
+      --diff-stop-5: rgba(239, 245, 255, 0.04);
+      --diff-sat: 0.78;
+      --diff-contrast: 1.0;
+      --diff-bright: 1.0;
+      --diff-blur: 0.16px;
+      background:
+        linear-gradient(160deg, rgba(223, 231, 242, 0.95) 0%, rgba(160, 172, 190, 0.93) 56%, rgba(123, 136, 155, 0.94) 100%);
+    }
+
+    .card[data-material='matte-carbon'] {
+      --mat-sheen-a: 0.08;
+      --mat-sheen-b: 0.02;
+      --mat-brush: 0.065;
+      --mat-temp-r: 112;
+      --mat-temp-g: 125;
+      --mat-temp-b: 145;
+      --diff-stop-1: rgba(112, 124, 145, 0.012);
+      --diff-stop-2: rgba(92, 106, 127, 0.010);
+      --diff-stop-3: rgba(110, 126, 148, 0.012);
+      --diff-stop-4: rgba(86, 98, 116, 0.010);
+      --diff-stop-5: rgba(112, 124, 145, 0.012);
+      --diff-sat: 0.78;
+      --diff-contrast: 1.0;
+      --diff-bright: 0.95;
+      --diff-blur: 0.2px;
+      background:
+        linear-gradient(152deg, rgba(25, 30, 38, 0.96), rgba(15, 20, 28, 0.98));
+    }
+
+    .card[data-material='forged-carbon'] {
+      --mat-sheen-a: 0.09;
+      --mat-sheen-b: 0.03;
+      --mat-brush: 0.06;
+      --mat-temp-r: 118;
+      --mat-temp-g: 130;
+      --mat-temp-b: 150;
+      --diff-stop-1: rgba(110, 126, 156, 0.014);
+      --diff-stop-2: rgba(94, 112, 138, 0.012);
+      --diff-stop-3: rgba(126, 142, 166, 0.014);
+      --diff-stop-4: rgba(86, 98, 122, 0.010);
+      --diff-stop-5: rgba(114, 128, 156, 0.012);
+      --diff-sat: 0.8;
+      --diff-contrast: 1.0;
+      --diff-bright: 0.95;
+      --diff-blur: 0.22px;
+      background:
+        linear-gradient(150deg, rgba(20, 25, 34, 0.97), rgba(11, 15, 23, 0.99));
+    }
+
+    .card[data-material='black-pvd'] {
+      --mat-sheen-a: 0.16;
+      --mat-sheen-b: 0.08;
+      --mat-brush: 0.05;
+      --mat-temp-r: 142;
+      --mat-temp-g: 160;
+      --mat-temp-b: 196;
+      --diff-stop-1: rgba(132, 158, 212, 0.04);
+      --diff-stop-2: rgba(108, 132, 182, 0.03);
+      --diff-stop-3: rgba(146, 166, 208, 0.03);
+      --diff-stop-4: rgba(100, 120, 166, 0.03);
+      --diff-stop-5: rgba(148, 170, 214, 0.04);
+      --diff-sat: 0.9;
+      --diff-contrast: 1.02;
+      --diff-bright: 0.98;
+      --diff-blur: 0.2px;
+      background:
+        linear-gradient(155deg, rgba(24, 30, 41, 0.96), rgba(10, 14, 21, 0.98));
+    }
+
+    .card[data-material='bead-blasted-titanium'] {
+      --mat-sheen-a: 0.12;
+      --mat-sheen-b: 0.04;
+      --mat-brush: 0.02;
+      --mat-temp-r: 188;
+      --mat-temp-g: 201;
+      --mat-temp-b: 218;
+      --diff-stop-1: rgba(228, 234, 241, 0.02);
+      --diff-stop-2: rgba(212, 221, 232, 0.02);
+      --diff-stop-3: rgba(236, 242, 248, 0.02);
+      --diff-stop-4: rgba(204, 215, 226, 0.02);
+      --diff-stop-5: rgba(232, 238, 246, 0.02);
+      --diff-sat: 0.75;
+      --diff-contrast: 1.0;
+      --diff-bright: 1.0;
+      --diff-blur: 0.16px;
+      background:
+        linear-gradient(158deg, rgba(231, 237, 243, 0.95), rgba(182, 193, 207, 0.94));
+    }
+
+    .card[data-material='satin-ceramic'] {
+      --mat-sheen-a: 0.06;
+      --mat-sheen-b: 0.02;
+      --mat-brush: 0.01;
+      --mat-temp-r: 216;
+      --mat-temp-g: 225;
+      --mat-temp-b: 233;
+      --diff-stop-1: rgba(234, 241, 246, 0.015);
+      --diff-stop-2: rgba(224, 232, 238, 0.014);
+      --diff-stop-3: rgba(240, 246, 250, 0.015);
+      --diff-stop-4: rgba(214, 224, 232, 0.014);
+      --diff-stop-5: rgba(236, 242, 248, 0.015);
+      --diff-sat: 0.7;
+      --diff-contrast: 0.98;
+      --diff-bright: 1.0;
+      --diff-blur: 0.24px;
+      background:
+        linear-gradient(160deg, rgba(244, 248, 251, 0.96), rgba(217, 225, 233, 0.95));
+    }
+
+    .card[data-material='brushed-metal'] .grain-layer {
+      opacity: 0.34;
+      mix-blend-mode: soft-light;
+      background-image:
+        url("Texture/Premium%20Brushed%20Metal%20albedo%20(Amex-like%20direction).png"),
+        url("Texture/Premium%20Brushed%20Metal%20roughness%20(grayscale).png");
+      background-size: cover, cover;
+      background-position: center, center;
+      filter: contrast(1.08) brightness(1.02) saturate(0.86);
+    }
+
+    .card[data-material='matte-carbon'] .grain-layer {
+      opacity: 0.34;
+      mix-blend-mode: soft-light;
+      background-image:
+        url("Texture/Carbon%20Fiber%20albedo%20(color).png"),
+        linear-gradient(180deg, rgba(255,255,255,0.05), rgba(0,0,0,0.24));
+      background-size: cover, 100% 100%;
+      background-position: center, center;
+      filter: contrast(1.20) brightness(0.74) saturate(0.72);
+    }
+
+    .card[data-material='forged-carbon'] .grain-layer {
+      opacity: 0.40;
+      mix-blend-mode: soft-light;
+      background-image:
+        url("Texture/Forged%20Carbon%20Albedo.png"),
+        url("Texture/Forged%20Carbon%20Roughness.png");
+      background-size: cover, cover;
+      background-position: center, center;
+      filter: contrast(1.18) brightness(0.76) saturate(0.84);
+    }
+
+    .card[data-material='black-pvd'] .grain-layer {
+      opacity: 0.30;
+      mix-blend-mode: soft-light;
+      background-image:
+        url("Texture/Black%20PVD%20Satin%20Metal%20Albedo.png"),
+        url("Texture/Black%20PVD%20Satin%20Metal%20Roughness%20.png");
+      background-size: cover, cover;
+      background-position: center, center;
+      filter: contrast(1.10) brightness(0.82) saturate(0.76);
+    }
+
+    .card[data-material='bead-blasted-titanium'] .grain-layer {
+      opacity: 0.26;
+      mix-blend-mode: soft-light;
+      background-image:
+        url("Texture/Bead-Blasted%20Titanium%20Albedo.png"),
+        url("Texture/Bead-Blasted%20Titanium%20Roughness%20.png");
+      background-size: cover, cover;
+      background-position: center, center;
+      filter: contrast(1.04) brightness(1.02) saturate(0.82);
+    }
+
+    .card[data-material='satin-ceramic'] .grain-layer {
+      opacity: 0.18;
+      mix-blend-mode: multiply;
+      background-image:
+        url("Texture/Satin%20Ceramic%20Albedo%20.png"),
+        url("Texture/Satin%20Ceramic%20Roughness.png");
+      background-size: cover, cover;
+      background-position: center, center;
+      filter: contrast(1.0) brightness(1.02) saturate(0.7);
+    }
+
+    /* ── Controls panel ── */
+    .controls-panel {
+      width: 352px;
+      min-width: 352px;
+      background: var(--ui-panel);
+      border-left: 1px solid var(--ui-border);
+      box-shadow: -10px 0 30px var(--ui-shadow);
+      backdrop-filter: blur(8px) saturate(1.02);
+      -webkit-backdrop-filter: blur(8px) saturate(1.02);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      opacity: 1;
+      transform: translateX(0);
+      animation: panel-enter 560ms cubic-bezier(0.25, 0.82, 0.34, 1) both;
+      transition:
+        width 520ms cubic-bezier(0.22, 0.84, 0.36, 1),
+        min-width 520ms cubic-bezier(0.22, 0.84, 0.36, 1),
+        opacity 220ms cubic-bezier(0.2, 0.84, 0.35, 1),
+        transform 420ms cubic-bezier(0.22, 0.84, 0.36, 1),
+        border-color 220ms ease;
+    }
+
+    .preview-panel::before,
+    .preview-panel::after {
+      transition: inset 280ms cubic-bezier(0.22, 0.84, 0.36, 1),
+                  opacity 280ms cubic-bezier(0.22, 0.84, 0.36, 1);
+    }
+
+    body.card-only-mode .controls-panel {
+      width: 0;
+      min-width: 0;
+      opacity: 0;
+      transform: translateX(18px);
+      pointer-events: none;
+      border-left-color: transparent;
+    }
+
+    body.card-only-mode .preview-panel {
+      padding: min(7vh, 52px) min(5vw, 46px);
+    }
+
+    body.card-only-mode .preview-panel::before {
+      inset: 2.8% 3.8% 5.8%;
+      box-shadow:
+        inset 0 2px 0 rgba(255, 255, 255, 0.58),
+        inset 0 -1px 0 rgba(72, 51, 29, 0.24),
+        0 28px 38px rgba(34, 21, 9, 0.36),
+        0 6px 16px rgba(34, 21, 9, 0.24);
+    }
+
+    body.card-only-mode .preview-panel::after {
+      inset: 2.8% 3.8% 5.8%;
+      opacity: 0.66;
+    }
+
+    body.card-only-mode .preview-container {
+      transform: translateY(-16px) scale(1.145);
+      filter: drop-shadow(0 26px 40px rgba(13, 8, 3, 0.34));
+    }
+
+    body.card-only-mode .card {
+      filter: saturate(1.05) contrast(1.04) brightness(1.03);
+      transition: filter 520ms cubic-bezier(0.22, 0.84, 0.36, 1);
+    }
+
+    .showcase-toggle-button {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      z-index: 6;
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(46, 38, 29, 0.26);
+      border-radius: 50%;
+      background: rgba(245, 240, 232, 0.72);
+      color: var(--ui-text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 12px 26px rgba(32, 24, 16, 0.16);
+      backdrop-filter: blur(10px) saturate(1.05);
+      -webkit-backdrop-filter: blur(10px) saturate(1.05);
+      transition:
+        background 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        transform 180ms cubic-bezier(0.22, 0.84, 0.36, 1);
+    }
+
+    .showcase-toggle-button::before {
+      content: '';
+      width: 0;
+      height: 0;
+      margin-left: 3px;
+      border-top: 8px solid transparent;
+      border-bottom: 8px solid transparent;
+      border-left: 12px solid currentColor;
+    }
+
+    .showcase-toggle-button:hover {
+      background: rgba(255, 250, 242, 0.86);
+      border-color: rgba(46, 38, 29, 0.42);
+      box-shadow: 0 16px 30px rgba(32, 24, 16, 0.20);
+      transform: translateY(-1px);
+    }
+
+    .showcase-toggle-button:focus-visible {
+      outline: 2px solid rgba(31, 26, 20, 0.58);
+      outline-offset: 3px;
+    }
+
+    body.card-only-mode .showcase-toggle-button {
+      top: 24px;
+      right: 24px;
+      background: rgba(20, 16, 12, 0.62);
+      border-color: rgba(255, 248, 235, 0.28);
+      color: #f3ecdf;
+      box-shadow: 0 14px 34px rgba(12, 8, 4, 0.30);
+    }
+
+    body.card-only-mode .showcase-toggle-button::before {
+      width: 13px;
+      height: 13px;
+      margin-left: 0;
+      border: 2px solid currentColor;
+      border-radius: 2px;
+    }
+
     .controls-header {
-      padding: 20px 24px 16px;
-      border-bottom: 1px solid #1a1a1a;
+      padding: 30px 28px 14px;
+      border-bottom: 1px solid var(--ui-border);
       flex-shrink: 0;
+      background: transparent;
+      position: relative;
+    }
+
+    .controls-header::after {
+      content: '';
+      position: absolute;
+      left: 28px;
+      right: 28px;
+      bottom: 0;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(31, 26, 20, 0.46), rgba(31, 26, 20, 0));
     }
 
     .controls-header h1 {
-      font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: #888;
+      font-size: 42px;
+      line-height: 0.9;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      text-transform: none;
+      color: var(--ui-text);
+      font-family: 'Instrument Serif', 'Times New Roman', serif;
     }
 
     .controls-header p {
-      font-size: 10px;
-      color: #444;
-      margin-top: 4px;
-      letter-spacing: 0.05em;
+      font-size: 9px;
+      font-family: 'Geist Mono', 'Courier New', monospace;
+      text-transform: uppercase;
+      color: var(--ui-muted);
+      margin-top: 12px;
+      letter-spacing: 0.12em;
     }
 
     .controls-scroll {
       flex: 1;
       overflow-y: auto;
-      padding: 8px 0 24px;
+      padding: 2px 0 28px;
       scrollbar-width: thin;
-      scrollbar-color: #2a2a2a transparent;
+      scrollbar-color: rgba(70, 59, 45, 0.35) transparent;
     }
 
-    .controls-scroll::-webkit-scrollbar { width: 4px; }
+    .controls-scroll::-webkit-scrollbar { width: 5px; }
     .controls-scroll::-webkit-scrollbar-track { background: transparent; }
-    .controls-scroll::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+    .controls-scroll::-webkit-scrollbar-thumb { background: rgba(70, 59, 45, 0.35); border-radius: 8px; }
 
     /* ── Section ── */
     .section {
-      padding: 16px 24px 8px;
+      margin: 0 28px;
+      padding: 16px 0 12px;
+      border-top: 1px solid var(--ui-border);
+      background: transparent;
+    }
+
+    .section:first-of-type {
+      border-top: none;
+      padding-top: 12px;
     }
 
     .section-header {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       margin-bottom: 12px;
     }
 
     .section-label {
       font-size: 9px;
       font-weight: 600;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.13em;
       text-transform: uppercase;
-      color: #444;
+      color: var(--ui-muted);
       white-space: nowrap;
+      font-family: 'Geist Mono', 'Courier New', monospace;
     }
 
     .section-line {
       flex: 1;
       height: 1px;
-      background: #1e1e1e;
+      background: linear-gradient(90deg, rgba(52, 43, 32, 0.30), rgba(52, 43, 32, 0));
     }
 
     /* ── Control row ── */
@@ -197,53 +934,213 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 10px;
-      min-height: 32px;
+      margin-bottom: 12px;
+      min-height: 30px;
     }
 
     .control-label {
-      font-size: 10px;
-      color: #666;
-      letter-spacing: 0.06em;
+      font-size: 9px;
+      color: var(--ui-muted);
+      letter-spacing: 0.09em;
       white-space: nowrap;
       flex-shrink: 0;
       min-width: 80px;
+      font-family: 'Geist Mono', 'Courier New', monospace;
+      text-transform: uppercase;
     }
 
     .control-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex: 1;
       justify-content: flex-end;
     }
 
+    .material-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+
+    .material-option {
+      border: none;
+      border-bottom: 1px solid rgba(46, 38, 29, 0.18);
+      background: transparent;
+      color: var(--ui-text);
+      border-radius: 0;
+      padding: 10px 0;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 0.22s ease, opacity 0.22s ease;
+      position: relative;
+      min-height: 0;
+    }
+
+    .material-option:hover {
+      border-color: var(--ui-border-strong);
+      background: transparent;
+      transform: none;
+    }
+
+    .material-option.is-active {
+      border-color: var(--ui-accent);
+      box-shadow: none;
+    }
+
+    .material-title {
+      display: block;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: 0.01em;
+      color: var(--ui-text);
+      margin-bottom: 4px;
+      text-transform: none;
+      padding-right: 22px;
+      font-family: 'Instrument Serif', 'Times New Roman', serif;
+      font-weight: 400;
+    }
+
+    .material-note {
+      display: block;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      color: var(--ui-faint);
+      line-height: 1.45;
+      text-transform: uppercase;
+      font-family: 'Geist Mono', 'Courier New', monospace;
+    }
+
+    .material-check {
+      position: absolute;
+      right: 0;
+      top: 14px;
+      width: auto;
+      height: auto;
+      border-radius: 0;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: transparent;
+      transition: all 0.18s ease;
+      background: none;
+      opacity: 0.6;
+    }
+
+    .material-option.is-active .material-check {
+      border-color: transparent;
+      background: none;
+      color: var(--ui-accent);
+      opacity: 1;
+    }
+
+    .include-list {
+      display: grid;
+      gap: 0;
+    }
+
+    .include-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border: none;
+      border-bottom: 1px solid rgba(46, 38, 29, 0.14);
+      border-radius: 0;
+      background: transparent;
+      cursor: pointer;
+      user-select: none;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      position: relative;
+    }
+
+    .include-item:hover {
+      border-color: var(--ui-border-strong);
+      background: transparent;
+    }
+
+    .include-item input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .include-check {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      border: 1px solid rgba(46, 38, 29, 0.42);
+      background: transparent;
+      color: transparent;
+      font-size: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .include-item input:checked + .include-check {
+      border-color: var(--ui-accent);
+      background: var(--ui-accent);
+      color: #f2ece0;
+    }
+
+    .include-text {
+      font-size: 10px;
+      color: var(--ui-muted);
+      letter-spacing: 0.04em;
+      line-height: 1.3;
+    }
+
     /* ── Text inputs ── */
     .text-input {
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
-      border-radius: 4px;
-      color: #e0e0e0;
-      font-family: 'Geist Mono', 'Courier New', monospace;
-      font-size: 11px;
-      padding: 6px 10px;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid rgba(46, 38, 29, 0.26);
+      border-radius: 0;
+      color: var(--ui-text);
+      font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px;
+      padding: 6px 0 5px;
       width: 100%;
       outline: none;
-      transition: border-color 0.15s ease;
+      transition: border-color 0.15s ease, opacity 0.15s ease;
     }
 
     .text-input:focus {
-      border-color: #00d4aa44;
-      background: #1e1e1e;
+      border-color: var(--ui-accent);
+      box-shadow: none;
     }
 
-    .text-input::placeholder { color: #3a3a3a; }
+    .text-input::placeholder { color: var(--ui-faint); }
+
+    .select-input {
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid rgba(46, 38, 29, 0.26);
+      border-radius: 0;
+      color: var(--ui-text);
+      font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px;
+      padding: 6px 0 5px;
+      width: 100%;
+      outline: none;
+      appearance: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .select-input:focus {
+      border-color: var(--ui-accent);
+    }
 
     /* ── Sliders ── */
     .slider-wrap {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex: 1;
     }
 
@@ -251,9 +1148,9 @@
       -webkit-appearance: none;
       appearance: none;
       flex: 1;
-      height: 3px;
-      background: #2a2a2a;
-      border-radius: 2px;
+      height: 2px;
+      background: rgba(46, 38, 29, 0.28);
+      border-radius: 999px;
       outline: none;
       cursor: pointer;
     }
@@ -261,36 +1158,72 @@
     .slider::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 13px;
-      height: 13px;
+      width: 10px;
+      height: 10px;
       border-radius: 50%;
-      background: #00d4aa;
+      background: var(--ui-accent);
+      border: none;
       cursor: pointer;
-      box-shadow: 0 0 6px rgba(0, 212, 170, 0.4);
+      box-shadow: none;
       transition: box-shadow 0.15s ease, transform 0.1s ease;
     }
 
     .slider::-webkit-slider-thumb:hover {
-      box-shadow: 0 0 10px rgba(0, 212, 170, 0.7);
-      transform: scale(1.15);
+      box-shadow: 0 0 0 4px rgba(31, 26, 20, 0.12);
+      transform: scale(1.04);
     }
 
     .slider::-moz-range-thumb {
-      width: 13px;
-      height: 13px;
+      width: 10px;
+      height: 10px;
       border-radius: 50%;
-      background: #00d4aa;
+      background: var(--ui-accent);
       cursor: pointer;
       border: none;
-      box-shadow: 0 0 6px rgba(0, 212, 170, 0.4);
+      box-shadow: none;
     }
 
     .slider-value {
-      font-size: 10px;
-      color: #00d4aa;
+      font-size: 9px;
+      color: var(--ui-muted);
       min-width: 32px;
       text-align: right;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.08em;
+      font-family: 'Geist Mono', 'Courier New', monospace;
+    }
+
+    .tone-reset {
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid rgba(46, 38, 29, 0.36);
+      border-radius: 0;
+      color: var(--ui-muted);
+      font-family: 'Geist Mono', 'Courier New', monospace;
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 2px 0;
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+    }
+
+    .tone-reset:hover {
+      border-color: var(--ui-accent);
+      color: var(--ui-accent);
+    }
+
+    .tone-reset:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    .tone-note {
+      font-size: 9px;
+      color: var(--ui-faint);
+      letter-spacing: 0.03em;
+      text-transform: none;
+      margin-top: 6px;
+      line-height: 1.5;
     }
 
     /* ── Color pickers ── */
@@ -301,10 +1234,10 @@
     }
 
     .color-swatch {
-      width: 24px;
-      height: 24px;
-      border-radius: 4px;
-      border: 1px solid #333;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 1px solid rgba(46, 38, 29, 0.48);
       cursor: pointer;
       position: relative;
       overflow: hidden;
@@ -313,8 +1246,8 @@
     }
 
     .color-swatch:hover {
-      border-color: #555;
-      transform: scale(1.08);
+      border-color: var(--ui-accent);
+      transform: scale(1.04);
     }
 
     .color-swatch input[type="color"] {
@@ -329,26 +1262,28 @@
     }
 
     .color-hex {
-      font-size: 10px;
-      color: #555;
-      letter-spacing: 0.06em;
+      font-size: 9px;
+      color: var(--ui-muted);
+      letter-spacing: 0.08em;
+      font-family: 'Geist Mono', 'Courier New', monospace;
     }
 
     /* ── Image upload ── */
     .image-upload-zone {
-      border: 1px dashed #2a2a2a;
-      border-radius: 6px;
-      padding: 20px 16px;
+      border: 1px dashed rgba(46, 38, 29, 0.34);
+      border-radius: 0;
+      padding: 16px 10px;
       text-align: center;
       cursor: pointer;
       transition: border-color 0.2s ease, background 0.2s ease;
       position: relative;
+      background: transparent;
     }
 
     .image-upload-zone:hover,
     .image-upload-zone.drag-over {
-      border-color: #00d4aa55;
-      background: #00d4aa08;
+      border-color: var(--ui-accent);
+      background: rgba(255, 255, 255, 0.26);
     }
 
     .image-upload-zone input[type="file"] {
@@ -361,21 +1296,23 @@
     }
 
     .upload-icon {
-      font-size: 18px;
+      font-size: 14px;
       margin-bottom: 6px;
       opacity: 0.4;
     }
 
     .upload-text {
-      font-size: 10px;
-      color: #444;
-      letter-spacing: 0.06em;
+      font-size: 9px;
+      color: var(--ui-muted);
+      letter-spacing: 0.08em;
       line-height: 1.5;
+      text-transform: uppercase;
+      font-family: 'Geist Mono', 'Courier New', monospace;
     }
 
     .image-preview-wrap {
       display: none;
-      margin-top: 10px;
+      margin-top: 12px;
       gap: 10px;
       align-items: center;
     }
@@ -387,9 +1324,9 @@
     .image-thumb {
       width: 48px;
       height: 32px;
-      border-radius: 4px;
+      border-radius: 0;
       object-fit: cover;
-      border: 1px solid #2a2a2a;
+      border: 1px solid rgba(46, 38, 29, 0.28);
       flex-shrink: 0;
     }
 
@@ -400,30 +1337,83 @@
 
     .image-thumb-name {
       font-size: 9px;
-      color: #555;
+      color: var(--ui-muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.07em;
+      font-family: 'Geist Mono', 'Courier New', monospace;
     }
 
     .btn-remove {
-      background: none;
-      border: 1px solid #2a2a2a;
-      border-radius: 3px;
-      color: #555;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid rgba(46, 38, 29, 0.36);
+      border-radius: 0;
+      color: var(--ui-muted);
       font-family: 'Geist Mono', 'Courier New', monospace;
       font-size: 9px;
-      padding: 3px 8px;
+      padding: 0;
       cursor: pointer;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.09em;
       transition: border-color 0.15s ease, color 0.15s ease;
       flex-shrink: 0;
+      text-transform: uppercase;
     }
 
     .btn-remove:hover {
-      border-color: #ff4444;
-      color: #ff4444;
+      border-color: var(--ui-accent);
+      color: var(--ui-accent);
+    }
+
+    @keyframes panel-enter {
+      from {
+        opacity: 0;
+        transform: translateX(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    @keyframes card-enter {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes showcase-sweep {
+      0% {
+        opacity: 0;
+        transform: translateX(-74%) rotate(8deg);
+      }
+      12% {
+        opacity: 0.45;
+      }
+      62% {
+        opacity: 0.26;
+      }
+      100% {
+        opacity: 0;
+        transform: translateX(76%) rotate(8deg);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .controls-panel,
+      .preview-container,
+      .stage-scene-canvas {
+        animation: none;
+        transition: none;
+      }
+
+      .preview-container.showcase-sweep::after {
+        animation: none;
+      }
     }
 
     /* ── Card image overlay div ── */
@@ -443,6 +1433,42 @@
       background: rgba(0, 0, 0, 0.55);
       z-index: 0;
     }
+
+    @media (max-width: 980px) {
+      html, body {
+        overflow: auto;
+      }
+
+      .editor-layout {
+        flex-direction: column;
+        width: 100%;
+        min-height: 100vh;
+        height: auto;
+      }
+
+      .preview-panel {
+        min-height: 44vh;
+      }
+
+      .controls-panel {
+        width: 100%;
+        min-width: 0;
+        height: 56vh;
+        border-left: none;
+        border-top: 1px solid var(--ui-border);
+        box-shadow: none;
+        background: rgba(245, 240, 232, 0.9);
+      }
+
+      body.card-only-mode .preview-panel {
+        min-height: 100vh;
+        padding: min(7vh, 44px) min(5vw, 20px);
+      }
+
+      body.card-only-mode .controls-panel {
+        display: none;
+      }
+    }
   </style>
 </head>
 <body>
@@ -452,6 +1478,7 @@
   <!-- ── Preview Panel ── -->
   <div class="preview-panel">
     <div class="preview-glow"></div>
+    <button class="showcase-toggle-button" id="btn-showcase-toggle" type="button" aria-label="Present card" title="Present card"></button>
     <div class="preview-container" id="card-container">
       <!-- Card injected by JS -->
     </div>
@@ -460,11 +1487,115 @@
   <!-- ── Controls Panel ── -->
   <div class="controls-panel">
     <div class="controls-header">
-      <h1>Card Editor</h1>
-      <p>Live holographic preview</p>
+      <h1>Material Study</h1>
+      <p>a quieter way to tune holographic finishes</p>
     </div>
 
     <div class="controls-scroll">
+
+      <!-- MATERIAL -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Material</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="material-grid" id="material-grid">
+          <button class="material-option is-active" type="button" data-material="matte-carbon" aria-pressed="true">
+            <span class="material-check">✓</span>
+            <span class="material-title">Matte Carbon</span>
+            <span class="material-note">True carbon-fiber weave with low-gloss finish</span>
+          </button>
+
+          <button class="material-option" type="button" data-material="brushed-metal" aria-pressed="false">
+            <span class="material-check">✓</span>
+            <span class="material-title">Brushed Metal</span>
+            <span class="material-note">Premium card-metal finish with subtle horizontal brushing</span>
+          </button>
+
+          <button class="material-option" type="button" data-material="forged-carbon" aria-pressed="false">
+            <span class="material-check">✓</span>
+            <span class="material-title">Forged Carbon</span>
+            <span class="material-note">Fragmented composite flakes with deep resin contrast</span>
+          </button>
+
+          <button class="material-option" type="button" data-material="black-pvd" aria-pressed="false">
+            <span class="material-check">✓</span>
+            <span class="material-title">Black PVD</span>
+            <span class="material-note">Dark satin-coated metal with premium stealth sheen</span>
+          </button>
+
+          <button class="material-option" type="button" data-material="bead-blasted-titanium" aria-pressed="false">
+            <span class="material-check">✓</span>
+            <span class="material-title">Blasted Titanium</span>
+            <span class="material-note">Cool matte metal with fine industrial microtexture</span>
+          </button>
+
+          <button class="material-option" type="button" data-material="satin-ceramic" aria-pressed="false">
+            <span class="material-check">✓</span>
+            <span class="material-title">Satin Ceramic</span>
+            <span class="material-note">Soft mineral surface with quiet premium diffusion</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- INCLUDE -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Include</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="include-list">
+          <label class="include-item">
+            <input type="checkbox" id="check-name" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">Name line</span>
+          </label>
+
+          <label class="include-item">
+            <input type="checkbox" id="check-title" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">Title line</span>
+          </label>
+
+          <label class="include-item">
+            <input type="checkbox" id="check-company" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">Company line</span>
+          </label>
+
+          <label class="include-item">
+            <input type="checkbox" id="check-specular" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">Specular highlight</span>
+          </label>
+
+          <label class="include-item">
+            <input type="checkbox" id="check-realism" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">PBR realism layer (Three.js)</span>
+          </label>
+
+          <label class="include-item">
+            <input type="checkbox" id="check-rim" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">Rim light</span>
+          </label>
+
+          <label class="include-item">
+            <input type="checkbox" id="check-grain" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">Micro grain texture</span>
+          </label>
+
+          <label class="include-item">
+            <input type="checkbox" id="check-sticker" checked>
+            <span class="include-check">✓</span>
+            <span class="include-text">Security holo sticker</span>
+          </label>
+        </div>
+      </div>
 
       <!-- TEXT -->
       <div class="section">
@@ -491,26 +1622,6 @@
           <span class="control-label">Line 3</span>
           <div class="control-right">
             <input class="text-input" id="input-line3" type="text" value="Nizi Labs" placeholder="Company">
-          </div>
-        </div>
-      </div>
-
-      <!-- CARD -->
-      <div class="section">
-        <div class="section-header">
-          <span class="section-label">Card</span>
-          <div class="section-line"></div>
-        </div>
-
-        <div class="control-row">
-          <span class="control-label">Card Color</span>
-          <div class="control-right">
-            <div class="color-swatch-wrap">
-              <div class="color-swatch" id="swatch-card-bg" style="background:#1a1a2e">
-                <input type="color" id="picker-card-bg" value="#1a1a2e">
-              </div>
-              <span class="color-hex" id="hex-card-bg">#1a1a2e</span>
-            </div>
           </div>
         </div>
       </div>
@@ -559,21 +1670,125 @@
         </div>
       </div>
 
-      <!-- HOLOGRAPHIC -->
+      <!-- TYPOGRAPHY & LAYOUT -->
       <div class="section">
         <div class="section-header">
-          <span class="section-label">Holographic</span>
+          <span class="section-label">Typography &amp; Layout</span>
           <div class="section-line"></div>
         </div>
 
         <div class="control-row">
-          <span class="control-label">Holo Intensity</span>
+          <span class="control-label">Primary Font</span>
+          <div class="control-right">
+            <select class="select-input" id="select-primary-font">
+              <option value="manrope">Manrope (Modern Sans)</option>
+              <option value="instrument-serif">Instrument Serif (Editorial)</option>
+              <option value="geist-mono">Geist Mono (Tech Mono)</option>
+              <option value="helvetica">Helvetica Neue (Classic Sans)</option>
+              <option value="georgia">Georgia (Classic Serif)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Company Font</span>
+          <div class="control-right">
+            <select class="select-input" id="select-company-font">
+              <option value="geist-mono">Geist Mono (Tech Mono)</option>
+              <option value="manrope">Manrope (Modern Sans)</option>
+              <option value="instrument-serif">Instrument Serif (Editorial)</option>
+              <option value="helvetica">Helvetica Neue (Classic Sans)</option>
+              <option value="georgia">Georgia (Classic Serif)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Alignment</span>
+          <div class="control-right">
+            <select class="select-input" id="select-text-align">
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 1 X</span>
           <div class="control-right">
             <div class="slider-wrap">
-              <input class="slider" id="slider-holo" type="range" min="0" max="1" step="0.01" value="0.55">
-              <span class="slider-value" id="val-holo">0.55</span>
+              <input class="slider" id="slider-line1-x" type="range" min="-72" max="72" step="1" value="0">
+              <span class="slider-value" id="val-line1-x">0px</span>
             </div>
           </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 1 Y</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-line1-y" type="range" min="-72" max="72" step="1" value="0">
+              <span class="slider-value" id="val-line1-y">0px</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 2 X</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-line2-x" type="range" min="-72" max="72" step="1" value="0">
+              <span class="slider-value" id="val-line2-x">0px</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 2 Y</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-line2-y" type="range" min="-72" max="72" step="1" value="0">
+              <span class="slider-value" id="val-line2-y">0px</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 3 X</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-line3-x" type="range" min="-72" max="72" step="1" value="0">
+              <span class="slider-value" id="val-line3-x">0px</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Line 3 Y</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-line3-y" type="range" min="-72" max="72" step="1" value="0">
+              <span class="slider-value" id="val-line3-y">0px</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tone-note">Tip: drag each text line directly on the card in editor mode.</div>
+
+        <div class="control-row">
+          <span class="control-label">Reset Layout</span>
+          <div class="control-right">
+            <button class="tone-reset" id="btn-text-layout-reset" type="button">Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIGHTING -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Lighting</span>
+          <div class="section-line"></div>
         </div>
 
         <div class="control-row">
@@ -597,14 +1812,71 @@
         </div>
 
         <div class="control-row">
-          <span class="control-label">Holo Sweep</span>
+          <span class="control-label">Realism</span>
           <div class="control-right">
             <div class="slider-wrap">
-              <input class="slider" id="slider-sweep" type="range" min="10" max="180" step="1" value="45">
-              <span class="slider-value" id="val-sweep">45</span>
+              <input class="slider" id="slider-realism" type="range" min="0" max="1" step="0.01" value="0.78">
+              <span class="slider-value" id="val-realism">0.78</span>
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- MATERIAL TONE -->
+      <div class="section" id="section-material-tone">
+        <div class="section-header">
+          <span class="section-label">Material Tone</span>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Hue</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-tone-hue" type="range" min="0" max="360" step="1" value="210">
+              <span class="slider-value" id="val-tone-hue">210°</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Saturation</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-tone-sat" type="range" min="0" max="140" step="1" value="60">
+              <span class="slider-value" id="val-tone-sat">60%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Lightness</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-tone-light" type="range" min="18" max="86" step="1" value="50">
+              <span class="slider-value" id="val-tone-light">50%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Tint Strength</span>
+          <div class="control-right">
+            <div class="slider-wrap">
+              <input class="slider" id="slider-tone-strength" type="range" min="0" max="1" step="0.01" value="0">
+              <span class="slider-value" id="val-tone-strength">0.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Reset Tone</span>
+          <div class="control-right">
+            <button class="tone-reset" id="btn-tone-reset" type="button">Reset</button>
+          </div>
+        </div>
+
+        <div class="tone-note" id="tone-note">Tone sliders adapt to the selected material profile.</div>
       </div>
 
       <!-- IMAGE -->
@@ -634,6 +1906,13 @@
 
 </div><!-- /editor-layout -->
 
+<script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script>
+<script>
+  // Fallback CDN in case unpkg is blocked/unavailable in the current network.
+  if (typeof THREE === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"><\\/script>');
+  }
+</script>
 <script>
 // ─── Card modules (copied from holographic-card.html) ────────────────────────
 
@@ -641,6 +1920,8 @@ class CardContent {
   constructor(cardElement) {
     this._card = cardElement;
     this._nodes = [];
+    this._container = null;
+    this._lineWrappers = Object.create(null);
     this._nameEl = null;
     this._titleEl = null;
     this._companyEl = null;
@@ -656,25 +1937,40 @@ class CardContent {
 
     const container = document.createElement('div');
     container.style.cssText = [
-      'position: absolute', 'inset: 0', 'z-index: 1',
+      'position: absolute', 'inset: 0', 'z-index: 3',
       'display: flex', 'flex-direction: column', 'justify-content: flex-end',
-      'padding: 24px 28px', 'pointer-events: none',
+      'align-items: flex-start', 'text-align: left',
+      'padding: 24px 28px', 'pointer-events: auto',
     ].join('; ');
+
+    const makeLineWrapper = (lineKey, node) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'card-text-item';
+      wrapper.dataset.textLine = lineKey;
+      wrapper.style.transform = 'translate3d(0px, 0px, 0px)';
+      wrapper.appendChild(node);
+      return wrapper;
+    };
 
     const nameEl = document.createElement('p');
     nameEl.textContent = 'Nico Prasetyo';
     nameEl.style.cssText = [
-      "font-family: 'Geist Mono', 'Courier New', monospace",
-      'font-size: 28px', 'font-weight: 600', 'line-height: 1.2',
-      'color: #f0f0f0', 'margin: 0 0 6px 0', 'letter-spacing: 0.01em',
+      "font-family: 'Manrope', 'Geist Mono', sans-serif",
+      'font-size: 44px', 'font-weight: 800', 'line-height: 0.92',
+      'color: #f3f8ff', 'margin: 0 0 6px 0', 'letter-spacing: 0.01em',
+      'text-shadow: 0 2px 10px rgba(0,0,0,0.22)',
+      'transform: scaleY(0.5)',
+      'transform-origin: left top',
     ].join('; ');
 
     const titleEl = document.createElement('p');
     titleEl.textContent = 'Founder';
     titleEl.style.cssText = [
-      "font-family: 'Geist Mono', 'Courier New', monospace",
-      'font-size: 14px', 'font-weight: 300', 'line-height: 1.4',
-      'color: #c0c0c0', 'margin: 0 0 10px 0', 'letter-spacing: 0.04em',
+      "font-family: 'Manrope', 'Geist Mono', sans-serif",
+      'font-size: 17px', 'font-weight: 600', 'line-height: 1.2',
+      'color: #d5dff2', 'margin: 0 0 9px 0', 'letter-spacing: 0.02em',
+      'text-transform: uppercase',
+      'text-shadow: 0 1px 8px rgba(0,0,0,0.26)',
     ].join('; ');
 
     const companyEl = document.createElement('p');
@@ -682,19 +1978,68 @@ class CardContent {
     companyEl.style.cssText = [
       "font-family: 'Geist Mono', 'Courier New', monospace",
       'font-size: 11px', 'font-weight: 400', 'line-height: 1.4',
-      'color: #c0c0c0', 'margin: 0', 'letter-spacing: 0.2em',
+      'color: #b5c5de', 'margin: 0', 'letter-spacing: 0.24em',
       'text-transform: uppercase',
+      'opacity: 0.95',
     ].join('; ');
 
-    container.appendChild(nameEl);
-    container.appendChild(titleEl);
-    container.appendChild(companyEl);
+    const nameWrap = makeLineWrapper('line1', nameEl);
+    const titleWrap = makeLineWrapper('line2', titleEl);
+    const companyWrap = makeLineWrapper('line3', companyEl);
+
+    container.appendChild(nameWrap);
+    container.appendChild(titleWrap);
+    container.appendChild(companyWrap);
     this._clip.appendChild(container);
     this._nodes.push(clip);
 
+    this._container = container;
+    this._lineWrappers.line1 = nameWrap;
+    this._lineWrappers.line2 = titleWrap;
+    this._lineWrappers.line3 = companyWrap;
     this._nameEl    = nameEl;
     this._titleEl   = titleEl;
     this._companyEl = companyEl;
+  }
+
+  setTypography(options) {
+    const opts = options || {};
+    if (this._nameEl && opts.primaryFontFamily) {
+      this._nameEl.style.fontFamily = opts.primaryFontFamily;
+      this._nameEl.style.transformOrigin = `${opts.align || 'left'} top`;
+    }
+    if (this._titleEl && opts.primaryFontFamily) {
+      this._titleEl.style.fontFamily = opts.primaryFontFamily;
+    }
+    if (this._companyEl && opts.companyFontFamily) {
+      this._companyEl.style.fontFamily = opts.companyFontFamily;
+    }
+
+    if (!this._container) return;
+
+    const alignMap = {
+      left: 'flex-start',
+      center: 'center',
+      right: 'flex-end',
+    };
+    const align = opts.align && alignMap[opts.align] ? opts.align : 'left';
+    const lineOffsets = opts.lineOffsets || {};
+
+    this._container.style.alignItems = alignMap[align];
+    this._container.style.textAlign = align;
+
+    ['line1', 'line2', 'line3'].forEach((lineKey) => {
+      const wrapper = this._lineWrappers[lineKey];
+      if (!wrapper) return;
+      const offset = lineOffsets[lineKey] || {};
+      const x = Number.isFinite(offset.x) ? offset.x : 0;
+      const y = Number.isFinite(offset.y) ? offset.y : 0;
+      wrapper.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    });
+  }
+
+  getLineWrapper(lineKey) {
+    return this._lineWrappers[lineKey] || null;
   }
 
   destroy() {
@@ -702,61 +2047,666 @@ class CardContent {
       if (node.parentNode) node.parentNode.removeChild(node);
     }
     this._nodes = [];
+    this._container = null;
+    this._lineWrappers = Object.create(null);
     this._card.removeAttribute('aria-label');
   }
 }
 
-class HolographicLayer {
-  constructor(cardElement, options) {
-    this._card    = cardElement;
-    this._opacity = (options && options.opacity != null) ? options.opacity : 0.55;
-    this._el      = null;
-    this._styleEl = null;
+class Stage3DLayer {
+  constructor(panelElement, options) {
+    this._panel = panelElement;
+    this._options = options || {};
+
+    this._renderer = null;
+    this._scene = null;
+    this._camera = null;
+    this._resizeObserver = null;
+    this._rafId = null;
+
+    this._ambient = null;
+    this._hemi = null;
+    this._keyLight = null;
+    this._fillLight = null;
+
+    this._targetTilt = { x: 0, y: 0 };
+    this._currentTilt = { x: 0, y: 0 };
+    this._cardOnly = false;
+    this._modeMix = 0;
+    this._transition = null;
+
+    this._cameraRig = {
+      editor: {
+        position: { x: 0.32, y: 3.6, z: 7.18 },
+        lookAt: { x: -0.04, y: -1.02, z: 0.1 },
+      },
+      showcase: {
+        position: { x: 0.08, y: 1.78, z: 4.74 },
+        lookAt: { x: 0.02, y: -0.12, z: 0.36 },
+      },
+    };
+
+    this._lightRig = {
+      editor: {
+        ambient: 0.34,
+        hemi: 0.84,
+        key: 0.98,
+        fill: 0.26,
+        keyPos: { x: 2.35, y: 6.6, z: 2.75 },
+        fillPos: { x: -3.35, y: 3.2, z: -2.9 },
+      },
+      showcase: {
+        ambient: 0.22,
+        hemi: 0.56,
+        key: 1.42,
+        fill: 0.44,
+        keyPos: { x: 3.82, y: 7.25, z: 1.36 },
+        fillPos: { x: -4.6, y: 3.7, z: -1.7 },
+      },
+    };
+
+    this._shadowPlane = null;
+    this._shadowMaterial = null;
+    this._panelStyleCache = Object.create(null);
+
+    this._textures = [];
+    this._materials = [];
+    this._geometries = [];
+    this._isRunning = false;
+
+    const memory = Number.isFinite(navigator.deviceMemory) ? navigator.deviceMemory : 8;
+    const cores = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 8;
+    this._isLowPower = memory <= 4 || cores <= 4;
+
+    this._tick = this._tick.bind(this);
   }
 
   init() {
-    this._styleEl = document.createElement('style');
-    this._styleEl.textContent = `
-      .holo-layer {
-        position: absolute; inset: 0; z-index: 2;
-        border-radius: inherit;
-        opacity: ${this._opacity};
-        mix-blend-mode: color-dodge;
-        pointer-events: none;
-        background:
-          linear-gradient(
-            calc(var(--holo-angle) * 1deg),
-            hsl(210, 30%, 80%)  0%,
-            hsl(260, 35%, 82%) 25%,
-            hsl(320, 28%, 84%) 50%,
-            hsl(170, 32%, 80%) 75%,
-            hsl(210, 30%, 80%) 100%
-          ),
-          linear-gradient(
-            calc(var(--holo-angle) * 1deg + 45deg),
-            transparent 20%,
-            rgba(255,255,255,0.10) 50%,
-            transparent 80%
-          );
-        filter: hue-rotate(calc(var(--holo-angle) * 0.25deg)) saturate(1.4) brightness(1.08);
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .holo-layer { animation: none; filter: none; }
-      }
-    `;
-    document.head.appendChild(this._styleEl);
+    if (!this._panel || typeof THREE === 'undefined') return false;
 
-    this._el = document.createElement('div');
-    this._el.className = 'holo-layer';
-    const clip = this._card.querySelector('.card-inner-clip');
-    (clip || this._card).appendChild(this._el);
+    try {
+      this._renderer = new THREE.WebGLRenderer({
+        antialias: !this._isLowPower,
+        alpha: true,
+        powerPreference: this._isLowPower ? 'default' : 'high-performance',
+      });
+
+      this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this._isLowPower ? 1.2 : 1.5));
+      this._renderer.setClearColor(0x000000, 0);
+      this._renderer.shadowMap.enabled = true;
+      this._renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this._renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this._renderer.toneMappingExposure = 1.02;
+      if ('outputColorSpace' in this._renderer && THREE.SRGBColorSpace) {
+        this._renderer.outputColorSpace = THREE.SRGBColorSpace;
+      }
+
+      this._renderer.domElement.className = 'stage-scene-canvas';
+      this._panel.insertBefore(this._renderer.domElement, this._panel.firstChild);
+      this._panel.classList.add('has-stage');
+
+      this._scene = new THREE.Scene();
+      this._scene.fog = new THREE.Fog(0x5b3a20, 8.0, 22.0);
+
+      this._camera = new THREE.PerspectiveCamera(36, 1, 0.1, 40);
+      this._camera.position.set(
+        this._cameraRig.editor.position.x,
+        this._cameraRig.editor.position.y,
+        this._cameraRig.editor.position.z
+      );
+      this._camera.lookAt(
+        this._cameraRig.editor.lookAt.x,
+        this._cameraRig.editor.lookAt.y,
+        this._cameraRig.editor.lookAt.z
+      );
+
+      this._ambient = new THREE.AmbientLight(0xffe4c4, this._lightRig.editor.ambient);
+      this._hemi = new THREE.HemisphereLight(0xfff1dc, 0x3f2816, this._lightRig.editor.hemi);
+      this._keyLight = new THREE.DirectionalLight(0xffd8af, this._lightRig.editor.key);
+      this._keyLight.position.set(
+        this._lightRig.editor.keyPos.x,
+        this._lightRig.editor.keyPos.y,
+        this._lightRig.editor.keyPos.z
+      );
+      this._keyLight.castShadow = true;
+      this._keyLight.shadow.mapSize.set(1024, 1024);
+      this._keyLight.shadow.camera.near = 0.4;
+      this._keyLight.shadow.camera.far = 18;
+      this._keyLight.shadow.camera.left = -6;
+      this._keyLight.shadow.camera.right = 6;
+      this._keyLight.shadow.camera.top = 6;
+      this._keyLight.shadow.camera.bottom = -6;
+      this._keyLight.shadow.bias = -0.0004;
+      this._fillLight = new THREE.DirectionalLight(0x91aec8, this._lightRig.editor.fill);
+      this._fillLight.position.set(
+        this._lightRig.editor.fillPos.x,
+        this._lightRig.editor.fillPos.y,
+        this._lightRig.editor.fillPos.z
+      );
+
+      this._scene.add(this._ambient, this._hemi, this._keyLight, this._fillLight);
+      this._buildWorld();
+
+      this._resize();
+      if (typeof ResizeObserver !== 'undefined') {
+        this._resizeObserver = new ResizeObserver(() => this._resize());
+        this._resizeObserver.observe(this._panel);
+      }
+
+      this._isRunning = true;
+      this._rafId = requestAnimationFrame(this._tick);
+      return true;
+    } catch (err) {
+      console.warn('[Editor] Stage3D failed to initialize:', err);
+      this.destroy();
+      return false;
+    }
+  }
+
+  _buildWorld() {
+    const tableTex = this._createWoodTexture(1200);
+    tableTex.wrapS = THREE.RepeatWrapping;
+    tableTex.wrapT = THREE.RepeatWrapping;
+    tableTex.repeat.set(3.2, 2.4);
+
+    const tableMat = this._trackMaterial(new THREE.MeshStandardMaterial({
+      map: tableTex,
+      roughness: 0.92,
+      metalness: 0.02,
+    }));
+    const table = new THREE.Mesh(this._trackGeometry(new THREE.PlaneGeometry(22, 16)), tableMat);
+    table.rotation.x = -Math.PI / 2;
+    table.position.set(0, -1.45, 0);
+    table.receiveShadow = true;
+    this._scene.add(table);
+
+    const boardTex = this._createPegboardTexture(1024);
+    boardTex.wrapS = THREE.RepeatWrapping;
+    boardTex.wrapT = THREE.RepeatWrapping;
+    boardTex.repeat.set(1.35, 1.0);
+
+    const boardMat = this._trackMaterial(new THREE.MeshStandardMaterial({
+      map: boardTex,
+      roughness: 0.86,
+      metalness: 0.0,
+    }));
+    const board = new THREE.Mesh(this._trackGeometry(new THREE.PlaneGeometry(13, 8.2)), boardMat);
+    board.position.set(0, 1.98, -3.8);
+    board.receiveShadow = true;
+    this._scene.add(board);
+
+    const matTex = this._createMatTexture(1024);
+    const matMat = this._trackMaterial(new THREE.MeshStandardMaterial({
+      map: matTex,
+      roughness: 0.82,
+      metalness: 0.03,
+      color: new THREE.Color('#f0f6ee'),
+    }));
+    const mat = new THREE.Mesh(this._trackGeometry(new THREE.PlaneGeometry(8.6, 5.9)), matMat);
+    mat.rotation.x = -Math.PI / 2;
+    mat.rotation.z = -0.04;
+    mat.position.set(0, -1.03, 0.26);
+    mat.receiveShadow = true;
+    this._scene.add(mat);
+
+    const paperMaterial = this._trackMaterial(new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#f2eadf'),
+      roughness: 0.93,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    }));
+    const scraps = [
+      { w: 0.82, h: 0.44, x: -2.58, z: -0.78, rot: 0.34 },
+      { w: 0.68, h: 0.36, x: 2.12, z: -0.52, rot: -0.28 },
+      { w: 0.55, h: 0.3, x: 2.72, z: 0.46, rot: 0.17 },
+    ];
+    for (const scrap of scraps) {
+      const mesh = new THREE.Mesh(this._trackGeometry(new THREE.PlaneGeometry(scrap.w, scrap.h)), paperMaterial);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = scrap.rot;
+      mesh.position.set(scrap.x, -1.008, scrap.z);
+      mesh.receiveShadow = true;
+      this._scene.add(mesh);
+    }
+
+    const shadowTex = this._createCardShadowTexture(512);
+    this._shadowMaterial = this._trackMaterial(new THREE.MeshBasicMaterial({
+      map: shadowTex,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.NormalBlending,
+    }));
+    this._shadowPlane = new THREE.Mesh(this._trackGeometry(new THREE.PlaneGeometry(4.3, 2.7)), this._shadowMaterial);
+    this._shadowPlane.rotation.x = -Math.PI / 2;
+    this._shadowPlane.position.set(0, -1.0, 0.22);
+    this._scene.add(this._shadowPlane);
+  }
+
+  _trackTexture(texture) {
+    if (texture) this._textures.push(texture);
+    return texture;
+  }
+
+  _trackMaterial(material) {
+    if (material) this._materials.push(material);
+    return material;
+  }
+
+  _trackGeometry(geometry) {
+    if (geometry) this._geometries.push(geometry);
+    return geometry;
+  }
+
+  _createWoodTexture(size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return this._trackTexture(new THREE.CanvasTexture(canvas));
+
+    const g = ctx.createLinearGradient(0, 0, size, size);
+    g.addColorStop(0, '#b88452');
+    g.addColorStop(0.45, '#9d6a3f');
+    g.addColorStop(1, '#7d4f2f');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < 260; i++) {
+      const y = (i / 260) * size;
+      const amp = 5 + Math.sin(i * 0.18) * 2.8;
+      const freq = 0.015 + (i % 7) * 0.0009;
+      ctx.beginPath();
+      for (let x = -16; x <= size + 16; x += 16) {
+        const wobble = Math.sin((x * freq) + i * 0.35) * amp;
+        const noise = Math.sin((x * 0.047) + i * 1.7) * 1.1;
+        const yy = y + wobble + noise;
+        if (x === -16) ctx.moveTo(x, yy);
+        else ctx.lineTo(x, yy);
+      }
+      ctx.strokeStyle = `rgba(68, 41, 21, ${0.07 + (i % 9) * 0.01})`;
+      ctx.lineWidth = 1 + (i % 3) * 0.4;
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 420; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 1 + Math.random() * 3;
+      ctx.fillStyle = `rgba(50, 28, 13, ${0.04 + Math.random() * 0.05})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const tex = this._trackTexture(new THREE.CanvasTexture(canvas));
+    if ('colorSpace' in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  _createPegboardTexture(size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return this._trackTexture(new THREE.CanvasTexture(canvas));
+
+    const g = ctx.createLinearGradient(0, 0, 0, size);
+    g.addColorStop(0, '#d6cfbf');
+    g.addColorStop(1, '#c7bda8');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+
+    const slotW = 13;
+    const slotH = 42;
+    const stepX = 62;
+    const stepY = 66;
+    for (let y = 20; y < size; y += stepY) {
+      for (let x = 22; x < size; x += stepX) {
+        this._roundedRect(ctx, x, y, slotW, slotH, 7);
+        ctx.fillStyle = 'rgba(84, 69, 49, 0.50)';
+        ctx.fill();
+      }
+    }
+
+    const tex = this._trackTexture(new THREE.CanvasTexture(canvas));
+    if ('colorSpace' in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  _createMatTexture(size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return this._trackTexture(new THREE.CanvasTexture(canvas));
+
+    const g = ctx.createLinearGradient(0, 0, size, size);
+    g.addColorStop(0, '#276f5f');
+    g.addColorStop(1, '#14493f');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+
+    const step = 40;
+    for (let x = 0; x <= size; x += step) {
+      const major = x % (step * 5) === 0;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, size);
+      ctx.strokeStyle = major ? 'rgba(226, 247, 233, 0.30)' : 'rgba(226, 247, 233, 0.15)';
+      ctx.lineWidth = major ? 2 : 1;
+      ctx.stroke();
+    }
+
+    for (let y = 0; y <= size; y += step) {
+      const major = y % (step * 5) === 0;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(size, y);
+      ctx.strokeStyle = major ? 'rgba(226, 247, 233, 0.30)' : 'rgba(226, 247, 233, 0.15)';
+      ctx.lineWidth = major ? 2 : 1;
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 210; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const len = 24 + Math.random() * 130;
+      const ang = (-0.4 + Math.random() * 0.8);
+      const x2 = x + Math.cos(ang) * len;
+      const y2 = y + Math.sin(ang) * len;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = `rgba(4, 25, 20, ${0.02 + Math.random() * 0.05})`;
+      ctx.lineWidth = 0.7 + Math.random() * 1.2;
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 75; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 8 + Math.random() * 30;
+      const radial = ctx.createRadialGradient(x, y, r * 0.08, x, y, r);
+      radial.addColorStop(0, `rgba(6, 18, 14, ${0.03 + Math.random() * 0.04})`);
+      radial.addColorStop(1, 'rgba(6, 18, 14, 0)');
+      ctx.fillStyle = radial;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = 'rgba(228, 245, 230, 0.48)';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(5, 5, size - 10, size - 10);
+
+    ctx.fillStyle = 'rgba(232, 247, 234, 0.42)';
+    ctx.font = '22px Geist Mono, monospace';
+    for (let i = 1; i <= 18; i++) {
+      const v = String(i * 10);
+      const pos = i * step;
+      ctx.fillText(v, pos + 2, size - 14);
+      ctx.save();
+      ctx.translate(10, size - pos - 6);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(v, 0, 0);
+      ctx.restore();
+    }
+
+    const tex = this._trackTexture(new THREE.CanvasTexture(canvas));
+    if ('colorSpace' in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  _createCardShadowTexture(size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return this._trackTexture(new THREE.CanvasTexture(canvas));
+
+    const rg = ctx.createRadialGradient(size * 0.5, size * 0.52, size * 0.08, size * 0.5, size * 0.52, size * 0.46);
+    rg.addColorStop(0, 'rgba(0,0,0,0.45)');
+    rg.addColorStop(0.55, 'rgba(0,0,0,0.18)');
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, size, size);
+
+    return this._trackTexture(new THREE.CanvasTexture(canvas));
+  }
+
+  _roundedRect(ctx, x, y, width, height, radius) {
+    const r = Math.min(radius, width * 0.5, height * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  _resize() {
+    if (!this._renderer || !this._camera || !this._panel) return;
+    const rect = this._panel.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width || this._panel.clientWidth || 1));
+    const height = Math.max(1, Math.round(rect.height || this._panel.clientHeight || 1));
+
+    this._renderer.setSize(width, height, false);
+    this._camera.aspect = width / height;
+    this._camera.updateProjectionMatrix();
+  }
+
+  _setPanelVar(name, value) {
+    if (!this._panel) return;
+    if (this._panelStyleCache[name] === value) return;
+    this._panelStyleCache[name] = value;
+    this._panel.style.setProperty(name, value);
+  }
+
+  _easeInOutCubic(t) {
+    if (t < 0.5) return 4 * t * t * t;
+    return 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  setTilt(tilt) {
+    const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
+    const x = tilt && Number.isFinite(tilt.x) ? tilt.x : 0;
+    const y = tilt && Number.isFinite(tilt.y) ? tilt.y : 0;
+    this._targetTilt.x = clamp(x, -1, 1);
+    this._targetTilt.y = clamp(y, -1, 1);
+  }
+
+  setCardOnlyMode(enabled, options) {
+    const next = !!enabled;
+    const target = next ? 1 : 0;
+    if (next === this._cardOnly && !this._transition && Math.abs(this._modeMix - target) < 0.001) return;
+    this._cardOnly = next;
+
+    const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+      ? performance.now()
+      : Date.now();
+    const delayMs = options && Number.isFinite(options.delayMs) ? Math.max(0, options.delayMs) : 0;
+    const durationMs = options && Number.isFinite(options.durationMs)
+      ? Math.max(180, options.durationMs)
+      : (next ? 860 : 620);
+
+    this._transition = {
+      from: this._modeMix,
+      to: target,
+      startTs: now + delayMs,
+      durationMs,
+    };
+  }
+
+  _tick(ts) {
+    if (!this._isRunning || !this._renderer || !this._scene || !this._camera) return;
+
+    const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    this._currentTilt.x += (this._targetTilt.x - this._currentTilt.x) * 0.09;
+    this._currentTilt.y += (this._targetTilt.y - this._currentTilt.y) * 0.09;
+
+    if (this._transition) {
+      const elapsed = ts - this._transition.startTs;
+      if (elapsed <= 0) {
+        this._modeMix = this._transition.from;
+      } else {
+        const raw = elapsed / this._transition.durationMs;
+        if (raw >= 1) {
+          this._modeMix = this._transition.to;
+          this._transition = null;
+        } else {
+          const eased = this._easeInOutCubic(clamp(raw, 0, 1));
+          this._modeMix = lerp(this._transition.from, this._transition.to, eased);
+        }
+      }
+    } else {
+      const passiveTarget = this._cardOnly ? 1 : 0;
+      this._modeMix += (passiveTarget - this._modeMix) * 0.022;
+    }
+
+    const modeMix = clamp(this._modeMix, 0, 1);
+
+    const t = ts * 0.001;
+    const idleX = Math.sin(t * 0.52) * lerp(0.13, 0.05, modeMix);
+    const idleY = Math.cos(t * 0.36) * lerp(0.09, 0.04, modeMix);
+
+    const editorCamera = this._cameraRig.editor;
+    const showcaseCamera = this._cameraRig.showcase;
+
+    const camBaseX = lerp(editorCamera.position.x, showcaseCamera.position.x, modeMix);
+    const camBaseY = lerp(editorCamera.position.y, showcaseCamera.position.y, modeMix);
+    const camBaseZ = lerp(editorCamera.position.z, showcaseCamera.position.z, modeMix);
+    const lookBaseX = lerp(editorCamera.lookAt.x, showcaseCamera.lookAt.x, modeMix);
+    const lookBaseY = lerp(editorCamera.lookAt.y, showcaseCamera.lookAt.y, modeMix);
+    const lookBaseZ = lerp(editorCamera.lookAt.z, showcaseCamera.lookAt.z, modeMix);
+
+    const camTiltX = this._currentTilt.x * lerp(0.38, 0.84, modeMix);
+    const camTiltY = -this._currentTilt.y * lerp(0.2, 0.36, modeMix);
+
+    const camX = camBaseX + camTiltX + idleX;
+    const camY = camBaseY + camTiltY + idleY;
+    const camZ = camBaseZ - modeMix * 0.1;
+
+    this._camera.position.set(camX, camY, camZ);
+    this._camera.lookAt(
+      lookBaseX + this._currentTilt.x * lerp(0.09, 0.18, modeMix),
+      lookBaseY + this._currentTilt.y * lerp(0.08, 0.14, modeMix),
+      lookBaseZ + this._currentTilt.x * lerp(0.08, 0.18, modeMix)
+    );
+
+    if (this._ambient) {
+      this._ambient.intensity = lerp(this._lightRig.editor.ambient, this._lightRig.showcase.ambient, modeMix);
+    }
+
+    if (this._hemi) {
+      this._hemi.intensity = lerp(this._lightRig.editor.hemi, this._lightRig.showcase.hemi, modeMix);
+    }
+
+    if (this._keyLight) {
+      const keyFrom = this._lightRig.editor.keyPos;
+      const keyTo = this._lightRig.showcase.keyPos;
+      this._keyLight.intensity = lerp(this._lightRig.editor.key, this._lightRig.showcase.key, modeMix);
+      this._keyLight.position.set(
+        lerp(keyFrom.x, keyTo.x, modeMix) + this._currentTilt.x * lerp(0.2, 0.72, modeMix),
+        lerp(keyFrom.y, keyTo.y, modeMix) - this._currentTilt.y * lerp(0.12, 0.24, modeMix),
+        lerp(keyFrom.z, keyTo.z, modeMix)
+      );
+    }
+
+    if (this._fillLight) {
+      const fillFrom = this._lightRig.editor.fillPos;
+      const fillTo = this._lightRig.showcase.fillPos;
+      this._fillLight.intensity = lerp(this._lightRig.editor.fill, this._lightRig.showcase.fill, modeMix);
+      this._fillLight.position.set(
+        lerp(fillFrom.x, fillTo.x, modeMix) - this._currentTilt.x * lerp(0.08, 0.3, modeMix),
+        lerp(fillFrom.y, fillTo.y, modeMix),
+        lerp(fillFrom.z, fillTo.z, modeMix)
+      );
+    }
+
+    if (this._shadowPlane) {
+      this._shadowPlane.position.x = this._currentTilt.x * lerp(0.16, 0.38, modeMix);
+      this._shadowPlane.position.z = 0.22 + this._currentTilt.y * lerp(0.11, 0.24, modeMix) + modeMix * 0.05;
+      this._shadowPlane.scale.set(1 + modeMix * 0.22, 1 + modeMix * 0.18, 1);
+      if (this._shadowMaterial) {
+        this._shadowMaterial.opacity = lerp(0.32, 0.53, modeMix);
+      }
+    }
+
+    if (this._scene && this._scene.fog) {
+      this._scene.fog.near = lerp(8.8, 7.2, modeMix);
+      this._scene.fog.far = lerp(22.8, 16.8, modeMix);
+    }
+
+    this._setPanelVar('--stage-sat', (1 + modeMix * 0.06).toFixed(3));
+    this._setPanelVar('--stage-brightness', (1 - modeMix * 0.13).toFixed(3));
+    this._setPanelVar('--stage-blur', `${(modeMix * 1.25).toFixed(2)}px`);
+    this._setPanelVar('--stage-scale', (1 + modeMix * 0.02).toFixed(4));
+
+    this._renderer.render(this._scene, this._camera);
+    this._rafId = requestAnimationFrame(this._tick);
   }
 
   destroy() {
-    if (this._el && this._el.parentNode) this._el.parentNode.removeChild(this._el);
-    this._el = null;
-    if (this._styleEl && this._styleEl.parentNode) this._styleEl.parentNode.removeChild(this._styleEl);
-    this._styleEl = null;
+    this._isRunning = false;
+    if (this._rafId !== null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+
+    if (this._panel) {
+      this._panel.classList.remove('has-stage');
+      this._panel.style.removeProperty('--stage-sat');
+      this._panel.style.removeProperty('--stage-brightness');
+      this._panel.style.removeProperty('--stage-blur');
+      this._panel.style.removeProperty('--stage-scale');
+    }
+    this._panelStyleCache = Object.create(null);
+    this._transition = null;
+
+    for (const geo of this._geometries) {
+      if (geo && typeof geo.dispose === 'function') geo.dispose();
+    }
+    this._geometries = [];
+
+    for (const mat of this._materials) {
+      if (mat && typeof mat.dispose === 'function') mat.dispose();
+    }
+    this._materials = [];
+
+    for (const tex of this._textures) {
+      if (tex && typeof tex.dispose === 'function') tex.dispose();
+    }
+    this._textures = [];
+
+    if (this._renderer) {
+      const canvas = this._renderer.domElement;
+      this._renderer.dispose();
+      if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      this._renderer = null;
+    }
+
+    this._scene = null;
+    this._camera = null;
+    this._ambient = null;
+    this._hemi = null;
+    this._keyLight = null;
+    this._fillLight = null;
+    this._shadowPlane = null;
+    this._shadowMaterial = null;
   }
 }
 
@@ -774,14 +2724,25 @@ class SpecularHighlight {
       .specular-layer {
         position: absolute; inset: 0; z-index: 3;
         border-radius: inherit;
-        mix-blend-mode: overlay;
+        mix-blend-mode: screen;
         pointer-events: none;
-        background: radial-gradient(
-          circle at calc(var(--spec-x) * 1%) calc(var(--spec-y) * 1%),
-          rgba(255,255,255,calc(var(--spec-intensity,0.8))) 0%,
-          rgba(255,255,255,0.1) 30%,
-          transparent 60%
-        );
+        opacity: var(--spec-opacity, 1);
+        background:
+          radial-gradient(
+            ellipse var(--spec-width, 46%) var(--spec-height, 24%) at calc(var(--spec-x) * 1%) calc(var(--spec-y) * 1%),
+            rgba(255, 253, 245, calc(var(--spec-intensity, 0.65) * 0.78)) 0%,
+            rgba(248, 252, 255, calc(var(--spec-intensity, 0.65) * 0.30)) 18%,
+            rgba(220, 232, 255, calc(var(--spec-intensity, 0.65) * 0.08)) 38%,
+            transparent 57%
+          ),
+          linear-gradient(
+            var(--spec-rotation, 155deg),
+            transparent 28%,
+            rgba(255, 255, 255, calc(var(--spec-intensity, 0.65) * 0.14)) 46%,
+            rgba(255, 255, 255, calc(var(--spec-intensity, 0.65) * 0.24)) 50%,
+            transparent 66%
+          );
+        filter: saturate(1.06);
       }
     `;
     document.head.appendChild(this._styleEl);
@@ -801,6 +2762,883 @@ class SpecularHighlight {
   }
 }
 
+class RealismLayer {
+  constructor(cardElement, options) {
+    this._card = cardElement;
+    this._options = options || {};
+    this._hostEl = null;
+    this._renderer = null;
+    this._scene = null;
+    this._camera = null;
+    this._ambientLight = null;
+    this._keyLight = null;
+    this._rimLight = null;
+    this._material = null;
+    this._geometry = null;
+    this._mesh = null;
+    this._uniforms = null;
+    this._resizeObserver = null;
+    this._isEnabled = true;
+    this._isAvailable = false;
+    this._mode = 'mesh-gradient';
+    this._tiltX = 0;
+    this._tiltY = 0;
+    this._holoAngle = 180;
+    this._activePreset = null;
+    this._resolution = { x: 340, y: 216 };
+    this._environmentRT = null;
+    this._foilNormalMap = null;
+    this._textureLoader = null;
+    this._materialTextureCache = new Map();
+    this._textMaskTexture = null;
+    this._textMaskCanvas = null;
+    this._textMaskCtx = null;
+    this._textMaskLines = {
+      line1: 'Nico Prasetyo',
+      line2: 'Founder',
+      line3: 'Nizi Labs',
+      includes: {
+        line1: true,
+        line2: true,
+        line3: true,
+      },
+    };
+    const memory = Number.isFinite(navigator.deviceMemory) ? navigator.deviceMemory : 8;
+    const cores = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 8;
+    const ua = navigator.userAgent || '';
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Windows Phone|Mobile/i.test(ua);
+    this._isLowPowerDevice = memory <= 4 || cores <= 4 || isMobileUA;
+    this._pixelRatioCap = this._isLowPowerDevice ? 1.2 : 1.6;
+    this._normalMapSize = this._isLowPowerDevice ? 256 : 384;
+    this._normalMapStrokes = this._isLowPowerDevice ? 1200 : 1900;
+    this._renderRafId = null;
+    this._lastRenderTs = 0;
+    this._maxRenderHz = this._isLowPowerDevice ? 30 : 60;
+  }
+
+  init() {
+    if (typeof THREE === 'undefined') {
+      console.warn('[Editor] Three.js unavailable. Realism layer disabled.');
+      return;
+    }
+
+    this._resolution = new THREE.Vector2(this._resolution.x || 340, this._resolution.y || 216);
+
+    try {
+
+    this._hostEl = document.createElement('div');
+    this._hostEl.className = 'realism-layer';
+    const clip = this._card.querySelector('.card-inner-clip');
+    (clip || this._card).appendChild(this._hostEl);
+
+    this._renderer = new THREE.WebGLRenderer({
+      antialias: !this._isLowPowerDevice,
+      alpha: true,
+      powerPreference: this._isLowPowerDevice ? 'default' : 'high-performance',
+      premultipliedAlpha: true,
+    });
+    this._renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this._pixelRatioCap));
+    this._renderer.setClearColor(0x000000, 0);
+    this._renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this._renderer.toneMappingExposure = 1.04;
+    if ('outputColorSpace' in this._renderer && THREE.SRGBColorSpace) {
+      this._renderer.outputColorSpace = THREE.SRGBColorSpace;
+    }
+    this._hostEl.appendChild(this._renderer.domElement);
+
+    this._scene = new THREE.Scene();
+    this._camera = new THREE.PerspectiveCamera(24, 340 / 216, 0.1, 10);
+    this._camera.position.set(0, 0, 2.75);
+
+    this._ambientLight = new THREE.AmbientLight(0xffffff, 0.52);
+    this._keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+    this._keyLight.position.set(1.15, 0.9, 1.4);
+    this._rimLight = new THREE.DirectionalLight(0x89cfff, 0.55);
+    this._rimLight.position.set(-1.25, -0.65, 1.35);
+    this._scene.add(this._ambientLight, this._keyLight, this._rimLight);
+
+    this._environmentRT = this._createEnvironmentMap();
+    if (this._environmentRT && this._environmentRT.texture) {
+      this._scene.environment = this._environmentRT.texture;
+    }
+    this._foilNormalMap = this._createFoilNormalMap();
+    this._textMaskTexture = this._createTextMaskTexture();
+
+    this._geometry = new THREE.PlaneGeometry(1, 1, 1, 1);
+    this._material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+    this._mesh = new THREE.Mesh(this._geometry, this._material);
+    this._scene.add(this._mesh);
+
+    this._fitMeshToViewport();
+
+    this._resize();
+    if (typeof ResizeObserver !== 'undefined') {
+      this._resizeObserver = new ResizeObserver(() => this._resize());
+      this._resizeObserver.observe(this._card);
+    }
+
+    this._isAvailable = true;
+    this.requestRender(true);
+    } catch (err) {
+      console.warn('[Editor] Failed to initialize Three.js realism layer:', err);
+      this.destroy();
+    }
+  }
+
+  _resize() {
+    if (!this._renderer || !this._card) return;
+    const rect = this._card.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width || this._card.clientWidth || 340));
+    const height = Math.max(1, Math.round(rect.height || this._card.clientHeight || 216));
+    this._renderer.setSize(width, height, false);
+    this._camera.aspect = width / height;
+    this._camera.updateProjectionMatrix();
+    if (this._resolution && typeof this._resolution.set === 'function') {
+      this._resolution.set(width, height);
+    }
+
+    if (this._uniforms && this._uniforms.u_resolution) {
+      this._uniforms.u_resolution.value.set(width, height);
+    }
+
+    this._fitMeshToViewport();
+    this.requestRender();
+  }
+
+  _fitMeshToViewport() {
+    if (!this._camera || !this._mesh) return;
+
+    const distance = Math.max(0.01, this._camera.position.z - (this._mesh.position ? this._mesh.position.z : 0));
+    const vFov = (this._camera.fov * Math.PI) / 180;
+    const visibleHeight = 2 * Math.tan(vFov * 0.5) * distance;
+    const visibleWidth = visibleHeight * this._camera.aspect;
+
+    // Slight overscan prevents the plane edge from showing when tilted.
+    const overscan = 1.24;
+    this._mesh.scale.set(visibleWidth * overscan, visibleHeight * overscan, 1);
+  }
+
+  _createEnvironmentMap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const g = ctx.createLinearGradient(0, 0, 512, 256);
+    g.addColorStop(0, '#0b0e14');
+    g.addColorStop(0.4, '#161b25');
+    g.addColorStop(1, '#07090f');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 512, 256);
+
+    const spots = [
+      { x: 120, y: 110, r: 110, color: 'rgba(255, 255, 255, 0.82)' },
+      { x: 420, y: 70,  r: 90,  color: 'rgba(120, 210, 255, 0.56)' },
+      { x: 360, y: 190, r: 130, color: 'rgba(255, 155, 215, 0.45)' },
+      { x: 70,  y: 210, r: 100, color: 'rgba(130, 255, 190, 0.42)' },
+    ];
+
+    for (const spot of spots) {
+      const rg = ctx.createRadialGradient(spot.x, spot.y, 0, spot.x, spot.y, spot.r);
+      rg.addColorStop(0, spot.color);
+      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = rg;
+      ctx.fillRect(spot.x - spot.r, spot.y - spot.r, spot.r * 2, spot.r * 2);
+    }
+
+    const eq = new THREE.CanvasTexture(canvas);
+    eq.mapping = THREE.EquirectangularReflectionMapping;
+    if ('colorSpace' in eq && THREE.SRGBColorSpace) {
+      eq.colorSpace = THREE.SRGBColorSpace;
+    }
+
+    const pmrem = new THREE.PMREMGenerator(this._renderer);
+    pmrem.compileEquirectangularShader();
+    const envRT = pmrem.fromEquirectangular(eq);
+    eq.dispose();
+    pmrem.dispose();
+    return envRT;
+  }
+
+  _loadHDRIEnvironment() {
+    if (!this._renderer || !this._scene || typeof THREE === 'undefined' || typeof THREE.RGBELoader !== 'function') return;
+
+    const loader = new THREE.RGBELoader();
+    const hdrUrl = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r165/examples/textures/equirectangular/venice_sunset_1k.hdr';
+
+    loader.setDataType(THREE.HalfFloatType);
+    loader.load(
+      hdrUrl,
+      (hdrTexture) => {
+        const pmrem = new THREE.PMREMGenerator(this._renderer);
+        pmrem.compileEquirectangularShader();
+        const rt = pmrem.fromEquirectangular(hdrTexture);
+        hdrTexture.dispose();
+        pmrem.dispose();
+
+        if (this._environmentRT && this._environmentRT !== rt) {
+          this._environmentRT.dispose();
+        }
+
+        this._environmentRT = rt;
+        this._scene.environment = rt.texture;
+        this.render();
+      },
+      undefined,
+      (err) => {
+        console.warn('[Editor] HDRI load failed; using procedural fallback environment.', err);
+      }
+    );
+  }
+
+  _createFoilNormalMap() {
+    const size = this._normalMapSize;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.fillStyle = 'rgb(128, 128, 255)';
+    ctx.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < this._normalMapStrokes; i++) {
+      const p = i * 12.9898;
+      const x = (Math.sin(p) * 43758.5453 % 1 + 1) % 1 * size;
+      const y = (Math.sin(p * 1.87) * 24634.6345 % 1 + 1) % 1 * size;
+      const len = 8 + ((Math.sin(p * 0.38) * 12345.3 % 1 + 1) % 1) * 36;
+      const angle = ((Math.sin(p * 0.21) * 9631.3 % 1 + 1) % 1 - 0.5) * 0.42;
+
+      const nx = Math.round(128 + Math.cos(angle) * 40);
+      const ny = Math.round(128 + Math.sin(angle) * 18);
+
+      ctx.strokeStyle = `rgb(${nx}, ${ny}, 255)`;
+      ctx.globalAlpha = 0.26;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(this._isLowPowerDevice ? 2.8 : 3.4, this._isLowPowerDevice ? 2.1 : 2.4);
+    return texture;
+  }
+
+  _getMaterialTexture(url, options) {
+    if (!url || typeof THREE === 'undefined') return null;
+    if (!this._textureLoader) this._textureLoader = new THREE.TextureLoader();
+
+    const opts = options || {};
+    const repeatX = Array.isArray(opts.repeat) && Number.isFinite(opts.repeat[0]) ? opts.repeat[0] : 1;
+    const repeatY = Array.isArray(opts.repeat) && Number.isFinite(opts.repeat[1]) ? opts.repeat[1] : 1;
+    const cacheKey = `${url}|${opts.color ? 'color' : 'data'}|${repeatX}|${repeatY}`;
+    const cached = this._materialTextureCache.get(cacheKey);
+    if (cached) return cached;
+
+    const texture = this._textureLoader.load(
+      url,
+      () => this.requestRender(true),
+      undefined,
+      (err) => {
+        console.warn('[Editor] Texture load failed:', url, err);
+      }
+    );
+
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(repeatX, repeatY);
+
+    if ('anisotropy' in texture && this._renderer && this._renderer.capabilities) {
+      texture.anisotropy = Math.min(8, this._renderer.capabilities.getMaxAnisotropy());
+    }
+
+    if (opts.color) {
+      if ('colorSpace' in texture && THREE.SRGBColorSpace) {
+        texture.colorSpace = THREE.SRGBColorSpace;
+      } else if ('encoding' in texture && THREE.sRGBEncoding) {
+        texture.encoding = THREE.sRGBEncoding;
+      }
+    } else if ('colorSpace' in texture && THREE.NoColorSpace) {
+      texture.colorSpace = THREE.NoColorSpace;
+    }
+
+    this._materialTextureCache.set(cacheKey, texture);
+    return texture;
+  }
+
+  _createTextMaskTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 652;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    this._textMaskCanvas = canvas;
+    this._textMaskCtx = ctx;
+    this._drawTextMask();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    return texture;
+  }
+
+  _drawTextMask() {
+    if (!this._textMaskCtx || !this._textMaskCanvas) return;
+    const ctx = this._textMaskCtx;
+    const canvas = this._textMaskCanvas;
+    const scaleX = canvas.width / 340;
+    const scaleY = canvas.height / 216;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+
+    const lines = this._textMaskLines || {};
+    const includes = lines.includes || {};
+
+    this._drawTextMaskLine({
+      text: lines.line1 || 'Nico Prasetyo',
+      enabled: includes.line1 !== false,
+      x: 28 * scaleX,
+      y: 128 * scaleY,
+      maxWidth: 284 * scaleX,
+      fontSize: 28 * scaleY,
+      weight: 600,
+      fontFamily: "'Geist Mono', 'Courier New', monospace",
+      letterSpacing: 0.01 * 28 * scaleY,
+      toUpperCase: false,
+    });
+
+    this._drawTextMaskLine({
+      text: lines.line2 || 'Founder',
+      enabled: includes.line2 !== false,
+      x: 28 * scaleX,
+      y: 162 * scaleY,
+      maxWidth: 284 * scaleX,
+      fontSize: 14 * scaleY,
+      weight: 400,
+      fontFamily: "'Geist Mono', 'Courier New', monospace",
+      letterSpacing: 0.04 * 14 * scaleY,
+      toUpperCase: false,
+    });
+
+    this._drawTextMaskLine({
+      text: lines.line3 || 'Nizi Labs',
+      enabled: includes.line3 !== false,
+      x: 28 * scaleX,
+      y: 194 * scaleY,
+      maxWidth: 284 * scaleX,
+      fontSize: 11 * scaleY,
+      weight: 500,
+      fontFamily: "'Geist Mono', 'Courier New', monospace",
+      letterSpacing: 0.2 * 11 * scaleY,
+      toUpperCase: true,
+    });
+  }
+
+  _drawTextMaskLine(options) {
+    if (!this._textMaskCtx || !this._textMaskCanvas || !options || options.enabled === false) return;
+    const raw = (options.text || '').trim();
+    if (!raw) return;
+
+    const ctx = this._textMaskCtx;
+    const maxWidth = options.maxWidth || this._textMaskCanvas.width * 0.9;
+    const minFontSize = Math.max(8, Math.round((options.fontSize || 24) * 0.65));
+    let fontSize = Math.max(minFontSize, options.fontSize || 24);
+    const weight = options.weight || 600;
+    const fontFamily = options.fontFamily || "'Geist Mono', 'Courier New', monospace";
+    const letterSpacing = Number.isFinite(options.letterSpacing) ? options.letterSpacing : 0;
+    const text = options.toUpperCase ? raw.toUpperCase() : raw;
+
+    const measureWidth = (value) => {
+      const chars = Array.from(value);
+      if (!chars.length) return 0;
+      let width = 0;
+      for (let i = 0; i < chars.length; i++) {
+        width += ctx.measureText(chars[i]).width;
+      }
+      return width + Math.max(0, chars.length - 1) * letterSpacing;
+    };
+
+    while (fontSize > minFontSize) {
+      ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+      if (measureWidth(text) <= maxWidth) break;
+      fontSize -= 1;
+    }
+
+    ctx.font = `${weight} ${fontSize}px ${fontFamily}`;
+
+    let cursorX = options.x || 0;
+    const baselineY = options.y || 0;
+    for (const ch of Array.from(text)) {
+      ctx.fillText(ch, cursorX, baselineY);
+      cursorX += ctx.measureText(ch).width + letterSpacing;
+    }
+  }
+
+  setTextMaskLines(lines) {
+    const next = {
+      line1: lines && typeof lines.line1 === 'string' ? lines.line1.trim() : '',
+      line2: lines && typeof lines.line2 === 'string' ? lines.line2.trim() : '',
+      line3: lines && typeof lines.line3 === 'string' ? lines.line3.trim() : '',
+      includes: {
+        line1: !(lines && lines.includes && lines.includes.line1 === false),
+        line2: !(lines && lines.includes && lines.includes.line2 === false),
+        line3: !(lines && lines.includes && lines.includes.line3 === false),
+      },
+    };
+
+    const normalized = {
+      line1: next.line1 || 'Nico Prasetyo',
+      line2: next.line2 || 'Founder',
+      line3: next.line3 || 'Nizi Labs',
+      includes: next.includes,
+    };
+
+    const prev = this._textMaskLines || {};
+    if (
+      prev.line1 === normalized.line1 &&
+      prev.line2 === normalized.line2 &&
+      prev.line3 === normalized.line3 &&
+      prev.includes &&
+      prev.includes.line1 === normalized.includes.line1 &&
+      prev.includes.line2 === normalized.includes.line2 &&
+      prev.includes.line3 === normalized.includes.line3
+    ) {
+      return;
+    }
+
+    this._textMaskLines = normalized;
+    if (!this._textMaskTexture || !this._textMaskCtx) return;
+
+    this._drawTextMask();
+    this._textMaskTexture.needsUpdate = true;
+
+    if (this._uniforms && this._uniforms.u_textMask) {
+      this._uniforms.u_textMask.value = this._textMaskTexture;
+    }
+
+    this.requestRender();
+  }
+
+  _buildGradientMeshMaterial(config) {
+    const colors = config.colors || ['#5be9ff', '#cc66ff', '#ff9a48', '#6bffb0'];
+    const resolution = (this._resolution && typeof this._resolution.clone === 'function')
+      ? this._resolution.clone()
+      : new THREE.Vector2(340, 216);
+
+    const uniforms = {
+      u_tilt:         { value: new THREE.Vector2(0, 0) },
+      u_holoAngle:    { value: 180 },
+      u_opacity:      { value: config.opacity != null ? config.opacity : 0.78 },
+      u_enabled:      { value: this._isEnabled ? 1 : 0 },
+      u_resolution:   { value: resolution },
+      u_cornerRadius: { value: config.cornerRadius != null ? config.cornerRadius : 0.16 },
+      u_grainAmount:  { value: config.grain != null ? config.grain : 0.25 },
+      u_textCut:      { value: config.textMask ? (config.textCut != null ? config.textCut : 0.26) : 0.0 },
+      u_textMask:     { value: this._textMaskTexture },
+      u_colorA:       { value: new THREE.Color(colors[0] || '#5be9ff') },
+      u_colorB:       { value: new THREE.Color(colors[1] || '#cc66ff') },
+      u_colorC:       { value: new THREE.Color(colors[2] || '#ff9a48') },
+      u_colorD:       { value: new THREE.Color(colors[3] || '#6bffb0') },
+    };
+
+    const material = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float;
+
+        varying vec2 vUv;
+        uniform vec2 u_tilt;
+        uniform float u_holoAngle;
+        uniform float u_opacity;
+        uniform float u_enabled;
+        uniform vec2 u_resolution;
+        uniform float u_cornerRadius;
+        uniform float u_grainAmount;
+        uniform float u_textCut;
+        uniform sampler2D u_textMask;
+        uniform vec3 u_colorA;
+        uniform vec3 u_colorB;
+        uniform vec3 u_colorC;
+        uniform vec3 u_colorD;
+
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float smoothGrain(vec2 uv) {
+          vec2 sc = uv * 128.0;
+          vec2 i  = floor(sc);
+          vec2 f  = fract(sc);
+          vec2 u  = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+            mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+            u.y
+          );
+        }
+
+        float sdRoundRect(vec2 p, vec2 b, float r) {
+          vec2 q = abs(p) - b + vec2(r);
+          return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+        }
+
+        void main() {
+          vec2 uv = vUv;
+          float aspect = u_resolution.x / max(1.0, u_resolution.y);
+          vec2 p = (uv - 0.5) * 2.0;
+          p.x *= aspect;
+
+          vec2 bounds = vec2(aspect, 1.0) - vec2(0.02, 0.02);
+          float d = sdRoundRect(p, bounds, u_cornerRadius);
+          float roundedMask = smoothstep(0.01, -0.004, d);
+
+          float a = u_holoAngle * 0.0174533;
+          vec2 drift = vec2(cos(a), sin(a)) * 0.028 + vec2(u_tilt.x * 0.06, -u_tilt.y * 0.05);
+          vec2 c1 = vec2(0.25, 0.33) + drift * vec2(0.8, 0.7);
+          vec2 c2 = vec2(0.75, 0.30) + drift * vec2(-0.6, 0.8);
+          vec2 c3 = vec2(0.30, 0.74) + drift * vec2(0.7, -0.65);
+          vec2 c4 = vec2(0.71, 0.68) + drift * vec2(-0.55, -0.7);
+
+          float w1 = 1.0 / (0.055 + dot(uv - c1, uv - c1));
+          float w2 = 1.0 / (0.055 + dot(uv - c2, uv - c2));
+          float w3 = 1.0 / (0.055 + dot(uv - c3, uv - c3));
+          float w4 = 1.0 / (0.055 + dot(uv - c4, uv - c4));
+          float wSum = w1 + w2 + w3 + w4;
+
+          vec3 grad = (u_colorA * w1 + u_colorB * w2 + u_colorC * w3 + u_colorD * w4) / wSum;
+
+          float flow = sin((uv.x * 8.0 - uv.y * 6.0) + (u_holoAngle * 0.015) + u_tilt.x * 2.1 - u_tilt.y * 1.4);
+          grad = mix(grad, grad.bgr, 0.12 + flow * 0.14);
+
+          vec2 axis = vec2(cos(a), sin(a));
+          vec2 ortho = vec2(-axis.y, axis.x);
+          float bandCoord = dot(uv - 0.5, axis) + u_tilt.x * 0.10 - u_tilt.y * 0.08;
+          float fineCoord = dot(uv - 0.5, ortho);
+          float broadBand = smoothstep(0.62, 0.98, sin(bandCoord * 28.0 + u_holoAngle * 0.018) * 0.5 + 0.5);
+          float microBand = smoothstep(0.82, 1.0, sin(fineCoord * 96.0 + u_holoAngle * 0.05) * 0.5 + 0.5);
+          vec3 spectral = 0.5 + 0.5 * cos(vec3(0.0, 2.1, 4.2) + bandCoord * 12.0 + u_holoAngle * 0.022);
+          grad = mix(grad, spectral, broadBand * 0.14 + microBand * 0.03);
+
+          float n = smoothGrain(uv);
+          float grain = (n - 0.5) * (0.10 + u_grainAmount * 0.20);
+          grad *= 0.96 + grain;
+
+          float textMask = texture2D(u_textMask, uv).a;
+          float alpha = roundedMask * u_opacity * u_enabled;
+          alpha *= (1.0 - textMask * u_textCut);
+
+          gl_FragColor = vec4(clamp(grad, 0.0, 1.0), alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+    });
+
+    return { material, uniforms };
+  }
+
+  _buildFoilMaterial(config) {
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(config.baseColor || '#f4f7ff'),
+      metalness: config.metalness != null ? config.metalness : 1.0,
+      roughness: config.roughness != null ? config.roughness : 0.15,
+      iridescence: config.iridescence != null ? config.iridescence : 1.0,
+      iridescenceIOR: config.iridescenceIOR != null ? config.iridescenceIOR : 1.4,
+      clearcoat: config.clearcoat != null ? config.clearcoat : 0.8,
+      clearcoatRoughness: config.clearcoatRoughness != null ? config.clearcoatRoughness : 0.12,
+      transmission: config.transmission != null ? config.transmission : 0.0,
+      thickness: config.thickness != null ? config.thickness : 0.06,
+      envMapIntensity: config.envMapIntensity != null ? config.envMapIntensity : 1.35,
+      transparent: true,
+      opacity: config.opacity != null ? config.opacity : 0.82,
+      side: THREE.DoubleSide,
+    });
+
+    const mapTexture = this._getMaterialTexture(config.mapUrl, {
+      color: true,
+      repeat: config.mapRepeat,
+    });
+    if (mapTexture) {
+      mat.map = mapTexture;
+      if (config.useMapColor === true) {
+        mat.color.set(0xffffff);
+      }
+    }
+
+    const roughnessTexture = this._getMaterialTexture(config.roughnessMapUrl, {
+      color: false,
+      repeat: config.mapRepeat,
+    });
+    if (roughnessTexture) {
+      mat.roughnessMap = roughnessTexture;
+    }
+
+    const metalnessTexture = this._getMaterialTexture(config.metalnessMapUrl, {
+      color: false,
+      repeat: config.mapRepeat,
+    });
+    if (metalnessTexture) {
+      mat.metalnessMap = metalnessTexture;
+    }
+
+    if ('iridescenceThicknessRange' in mat) {
+      mat.iridescenceThicknessRange = config.iridescenceThicknessRange || [120, 880];
+    }
+
+    if ('sheen' in mat) {
+      mat.sheen = config.sheen != null ? config.sheen : 0.28;
+      mat.sheenRoughness = config.sheenRoughness != null ? config.sheenRoughness : 0.34;
+      mat.sheenColor = new THREE.Color(config.sheenColor || '#dce8ff');
+    }
+
+    const normalTexture = this._getMaterialTexture(config.normalMapUrl, {
+      color: false,
+      repeat: config.normalRepeat || config.mapRepeat,
+    });
+
+    if (normalTexture) {
+      mat.normalMap = normalTexture;
+      mat.normalScale = new THREE.Vector2(
+        config.normalScaleX != null ? config.normalScaleX : 0.9,
+        config.normalScaleY != null ? config.normalScaleY : 0.34
+      );
+    } else if (this._foilNormalMap && config.useNormalMap === true) {
+      mat.normalMap = this._foilNormalMap;
+      mat.normalScale = new THREE.Vector2(
+        config.normalScaleX != null ? config.normalScaleX : 0.9,
+        config.normalScaleY != null ? config.normalScaleY : 0.34
+      );
+    }
+
+    mat.needsUpdate = true;
+
+    return mat;
+  }
+
+  _swapMaterial(material, mode, uniforms) {
+    if (this._material && this._material !== material) {
+      this._material.dispose();
+    }
+
+    this._material = material;
+    this._mode = mode;
+    this._uniforms = uniforms || null;
+
+    if (this._mesh) {
+      this._mesh.material = material;
+    }
+  }
+
+  setEnabled(enabled) {
+    this._isEnabled = !!enabled;
+    if (this._uniforms && this._uniforms.u_enabled) {
+      this._uniforms.u_enabled.value = this._isEnabled ? 1 : 0;
+    }
+    if (this._mesh) {
+      this._mesh.visible = this._isEnabled;
+    }
+    if (this._hostEl) {
+      this._hostEl.style.display = this._isEnabled ? 'block' : 'none';
+    }
+    this.requestRender();
+  }
+
+  setOpacity(value) {
+    const safe = Math.max(0, Math.min(1, value));
+    if (this._uniforms) {
+      if (this._uniforms.u_opacity) this._uniforms.u_opacity.value = safe;
+    }
+    if (this._material && 'opacity' in this._material) {
+      this._material.opacity = safe;
+      this._material.transparent = safe < 1 || this._mode === 'mesh-gradient';
+    }
+    if (this._hostEl) {
+      this._hostEl.style.setProperty('--realism-opacity', String(safe));
+    }
+    this.requestRender();
+  }
+
+  applyMaterial(preset) {
+    if (!this._isAvailable || !preset) return;
+    this._activePreset = preset;
+
+    if (preset.mode === 'foil-physical') {
+      const mat = this._buildFoilMaterial(preset);
+      this._swapMaterial(mat, 'foil-physical', null);
+    } else {
+      const gradient = this._buildGradientMeshMaterial(preset);
+      this._swapMaterial(gradient.material, 'mesh-gradient', gradient.uniforms);
+    }
+
+    this.setOpacity(preset.opacity != null ? preset.opacity : (this._options.opacity != null ? this._options.opacity : 0.78));
+    this.setEnabled(this._isEnabled);
+    this.requestRender();
+  }
+
+  update(tilt, holoAngle, reducedMotion) {
+    if (!this._isAvailable) return;
+    const prevX = this._tiltX;
+    const prevY = this._tiltY;
+    const prevAngle = this._holoAngle;
+    this._tiltX = tilt && Number.isFinite(tilt.x) ? tilt.x : 0;
+    this._tiltY = tilt && Number.isFinite(tilt.y) ? tilt.y : 0;
+    this._holoAngle = Number.isFinite(holoAngle) ? holoAngle : 180;
+
+    if (reducedMotion) {
+      this._tiltX = 0;
+      this._tiltY = 0;
+    }
+
+    const tiltDelta = Math.abs(this._tiltX - prevX) + Math.abs(this._tiltY - prevY);
+    const angleDelta = Math.abs(this._holoAngle - prevAngle);
+    if (tiltDelta < 0.0012 && angleDelta < 0.08) {
+      return;
+    }
+
+    if (this._mesh) {
+      this._mesh.rotation.x = -this._tiltY * 0.22;
+      this._mesh.rotation.y = this._tiltX * 0.26;
+    }
+
+    if (this._keyLight) {
+      this._keyLight.position.set(1.1 + this._tiltX * 0.14, 0.9 - this._tiltY * 0.12, 1.4);
+    }
+    if (this._rimLight) {
+      this._rimLight.position.set(-1.2 - this._tiltX * 0.10, -0.55 + this._tiltY * 0.09, 1.3);
+    }
+
+    if (this._mode === 'mesh-gradient' && this._uniforms) {
+      this._uniforms.u_tilt.value.set(this._tiltX, this._tiltY);
+      this._uniforms.u_holoAngle.value = this._holoAngle;
+    }
+
+    if (this._mode === 'foil-physical' && this._material) {
+      const preset = this._activePreset || {};
+      if ('envMapIntensity' in this._material) {
+        const baseEnv = preset.envMapIntensity != null ? preset.envMapIntensity : 1.35;
+        this._material.envMapIntensity = baseEnv;
+      }
+      if ('iridescence' in this._material) {
+        const baseIridescence = preset.iridescence != null ? preset.iridescence : 0.75;
+        this._material.iridescence = Math.max(0, Math.min(1, baseIridescence));
+      }
+      if (this._material.normalMap) {
+        this._material.normalMap.offset.set(0, 0);
+        this._material.normalMap.rotation = 0;
+      }
+    }
+
+    this.requestRender();
+  }
+
+  requestRender(forceNow) {
+    if (!this._isAvailable || !this._isEnabled || !this._renderer || !this._scene || !this._camera) return;
+    if (forceNow) {
+      this.render();
+      return;
+    }
+    if (this._renderRafId !== null) return;
+    this._renderRafId = requestAnimationFrame((ts) => {
+      this._renderRafId = null;
+      const minFrameTime = 1000 / this._maxRenderHz;
+      if (ts - this._lastRenderTs < minFrameTime) {
+        this.requestRender();
+        return;
+      }
+      this._lastRenderTs = ts;
+      this.render();
+    });
+  }
+
+  render() {
+    if (!this._isAvailable || !this._isEnabled || !this._renderer || !this._scene || !this._camera) return;
+    this._renderer.render(this._scene, this._camera);
+  }
+
+  destroy() {
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+    if (this._mesh && this._mesh.parent) {
+      this._mesh.parent.remove(this._mesh);
+    }
+    if (this._geometry) {
+      this._geometry.dispose();
+      this._geometry = null;
+    }
+    if (this._mesh) {
+      this._mesh = null;
+    }
+    if (this._material) {
+      this._material.dispose();
+      this._material = null;
+    }
+    if (this._renderRafId !== null) {
+      cancelAnimationFrame(this._renderRafId);
+      this._renderRafId = null;
+    }
+    if (this._renderer) {
+      this._renderer.dispose();
+      const canvas = this._renderer.domElement;
+      if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      this._renderer = null;
+    }
+    if (this._environmentRT) {
+      this._environmentRT.dispose();
+      this._environmentRT = null;
+    }
+    if (this._foilNormalMap) {
+      this._foilNormalMap.dispose();
+      this._foilNormalMap = null;
+    }
+    if (this._materialTextureCache) {
+      for (const texture of this._materialTextureCache.values()) {
+        if (texture) texture.dispose();
+      }
+      this._materialTextureCache.clear();
+    }
+    this._textureLoader = null;
+    if (this._textMaskTexture) {
+      this._textMaskTexture.dispose();
+      this._textMaskTexture = null;
+    }
+    this._textMaskCanvas = null;
+    this._textMaskCtx = null;
+    if (this._hostEl && this._hostEl.parentNode) {
+      this._hostEl.parentNode.removeChild(this._hostEl);
+    }
+    this._hostEl = null;
+    this._scene = null;
+    this._camera = null;
+    this._ambientLight = null;
+    this._keyLight = null;
+    this._rimLight = null;
+    this._uniforms = null;
+    this._isAvailable = false;
+  }
+}
+
 class OrientationController {
   constructor(onTilt) {
     this._onTilt        = onTilt;
@@ -815,7 +3653,7 @@ class OrientationController {
     this._fallbackTimer = setTimeout(() => {
       this._fallbackTimer = null;
       this._onTilt(null);
-    }, 500);
+    }, 1200);
   }
 
   stop() {
@@ -836,9 +3674,30 @@ class OrientationController {
       this._baseGamma = e.gamma ?? 0;
     }
     const clamp = (v, mn, mx) => Math.min(Math.max(v, mn), mx);
-    const RANGE = 20;
-    const x = clamp((e.gamma ?? 0) - this._baseGamma, -RANGE, RANGE) / RANGE;
-    const y = clamp((e.beta  ?? 0) - this._baseBeta,  -RANGE, RANGE) / RANGE;
+    const curve = (value) => {
+      const sign = Math.sign(value);
+      const abs = Math.abs(value);
+      if (abs < 0.025) return 0;
+      return sign * Math.pow((abs - 0.025) / 0.975, 0.92);
+    };
+    const RANGE = 22;
+    let deltaGamma = (e.gamma ?? 0) - this._baseGamma;
+    let deltaBeta = (e.beta ?? 0) - this._baseBeta;
+    const orientationAngle = (typeof screen !== 'undefined' && screen.orientation && Number.isFinite(screen.orientation.angle))
+      ? screen.orientation.angle
+      : (Number.isFinite(window.orientation) ? window.orientation : 0);
+
+    if (orientationAngle === 90) {
+      [deltaGamma, deltaBeta] = [deltaBeta, -deltaGamma];
+    } else if (orientationAngle === -90 || orientationAngle === 270) {
+      [deltaGamma, deltaBeta] = [-deltaBeta, deltaGamma];
+    } else if (Math.abs(orientationAngle) === 180) {
+      deltaGamma *= -1;
+      deltaBeta *= -1;
+    }
+
+    const x = curve(clamp(deltaGamma, -RANGE, RANGE) / RANGE);
+    const y = curve(clamp(deltaBeta,  -RANGE, RANGE) / RANGE);
     this._onTilt({ x, y });
   }
 }
@@ -976,8 +3835,8 @@ class HolographicCard {
     this._wrapperEl = null;
     this._cardEl    = null;
     this._content   = null;
-    this._holoLayer = null;
     this._specular  = null;
+    this._realism   = null;
     this._permission  = null;
     this._orientation = null;
     this._mouse       = null;
@@ -995,6 +3854,7 @@ class HolographicCard {
       reducedMotion: false,
     };
     this._tick             = this._tick.bind(this);
+    this._queueTick        = this._queueTick.bind(this);
     this._onTiltUpdate     = this._onTiltUpdate.bind(this);
     this._activateFallback = this._activateFallback.bind(this);
   }
@@ -1015,15 +3875,15 @@ class HolographicCard {
     this._content = new CardContent(this._cardEl);
     this._content.init();
 
-    this._holoLayer = new HolographicLayer(this._cardEl, {
-      opacity: this._options.holoOpacity != null ? this._options.holoOpacity : 0.55,
-    });
-    this._holoLayer.init();
-
     this._specular = new SpecularHighlight(this._cardEl, {
       intensity: this._options.specIntensity != null ? this._options.specIntensity : 0.8,
     });
     this._specular.init();
+
+    this._realism = new RealismLayer(this._cardEl, {
+      opacity: this._options.realismOpacity != null ? this._options.realismOpacity : 0.78,
+    });
+    this._realism.init();
 
     this._state.inputMode = this._detectInputMode();
 
@@ -1050,9 +3910,7 @@ class HolographicCard {
       this._observer = new IntersectionObserver((entries) => {
         const visible = entries[0].isIntersecting;
         this._state.isVisible = visible;
-        if (visible && this._state.isRunning && this._state.rafId === null) {
-          this._state.rafId = requestAnimationFrame(this._tick);
-        }
+        if (visible && this._state.isRunning) this._queueTick();
       }, { threshold: 0.1 });
       this._observer.observe(this._cardEl);
     } else {
@@ -1060,7 +3918,7 @@ class HolographicCard {
     }
 
     this._state.isRunning = true;
-    this._state.rafId = requestAnimationFrame(this._tick);
+    this._queueTick();
   }
 
   destroy() {
@@ -1074,8 +3932,8 @@ class HolographicCard {
     if (this._orientation) { this._orientation.stop(); this._orientation = null; }
     if (this._mouse)       { this._mouse.stop();       this._mouse       = null; }
     if (this._content)   { this._content.destroy();   this._content   = null; }
-    if (this._holoLayer) { this._holoLayer.destroy();  this._holoLayer = null; }
     if (this._specular)  { this._specular.destroy();   this._specular  = null; }
+    if (this._realism)   { this._realism.destroy();    this._realism   = null; }
     if (this._wrapperEl && this._wrapperEl.parentNode) {
       this._wrapperEl.parentNode.removeChild(this._wrapperEl);
     }
@@ -1106,17 +3964,24 @@ class HolographicCard {
     s.setProperty('--tilt-deg-x', tilt.y * 25);
     s.setProperty('--tilt-deg-y', tilt.x * 25);
     s.setProperty('--holo-angle', 180 + tilt.x * 45);
-    s.setProperty('--holo-x',     (tilt.x * 0.5 + 0.5) * 100);
-    s.setProperty('--holo-y',     (tilt.y * 0.5 + 0.5) * 100);
     s.setProperty('--spec-x',     (tilt.x * 0.5 + 0.5) * 100);
     s.setProperty('--spec-y',     (tilt.y * 0.5 + 0.5) * 100);
-    s.setProperty('--shadow-x',   tilt.x * -28);
-    s.setProperty('--shadow-y',   tilt.y * -28);
+    s.setProperty('--shadow-x',   tilt.x * -20);
+    s.setProperty('--shadow-y',   tilt.y * -20);
   }
 
   _onTiltUpdate(tilt) {
-    if (tilt === null) { this._activateFallback(); }
-    else { this._state.pendingTilt = tilt; }
+    if (tilt === null) {
+      this._activateFallback();
+      return;
+    }
+    this._state.pendingTilt = tilt;
+    this._queueTick();
+  }
+
+  _queueTick() {
+    if (!this._state.isRunning || !this._state.isVisible || this._state.rafId !== null) return;
+    this._state.rafId = requestAnimationFrame(this._tick);
   }
 
   _tick() {
@@ -1125,15 +3990,26 @@ class HolographicCard {
       return;
     }
     const targetTilt = this._state.reducedMotion ? { x: 0, y: 0 } : this._state.pendingTilt;
-    const tilt = this._state.mode === 'desktop-mouse' && !this._state.reducedMotion
-      ? {
-          x: this._state.currentTilt.x + (targetTilt.x - this._state.currentTilt.x) * 0.28,
-          y: this._state.currentTilt.y + (targetTilt.y - this._state.currentTilt.y) * 0.28,
-        }
-      : targetTilt;
+    const smoothing = this._state.mode === 'desktop-mouse' ? 0.18 : 0.12;
+    const tilt = this._state.reducedMotion
+      ? targetTilt
+      : {
+          x: this._state.currentTilt.x + (targetTilt.x - this._state.currentTilt.x) * smoothing,
+          y: this._state.currentTilt.y + (targetTilt.y - this._state.currentTilt.y) * smoothing,
+        };
+    const prevTilt = this._state.currentTilt;
     this._writeCSSVars(tilt);
     this._state.currentTilt = tilt;
-    this._state.rafId = requestAnimationFrame(this._tick);
+    const remainingX = Math.abs(targetTilt.x - tilt.x);
+    const remainingY = Math.abs(targetTilt.y - tilt.y);
+    const deltaX = Math.abs(prevTilt.x - tilt.x);
+    const deltaY = Math.abs(prevTilt.y - tilt.y);
+    const shouldContinue = remainingX > 0.001 || remainingY > 0.001 || deltaX > 0.0004 || deltaY > 0.0004;
+    if (shouldContinue) {
+      this._state.rafId = requestAnimationFrame(this._tick);
+    } else {
+      this._state.rafId = null;
+    }
   }
 
   _activateFallback() {
@@ -1141,14 +4017,16 @@ class HolographicCard {
     if (this._state.inputMode === 'mobile-gyro') {
       this._state.mode = 'mobile-gyro-unavailable';
       this._state.pendingTilt = { x: 0, y: 0 };
+      this._queueTick();
       return;
     }
     if (this._state.mode === 'desktop-mouse') return;
     this._state.mode = 'desktop-mouse';
     if (!this._mouse) {
-      this._mouse = new MouseController(this._cardEl, this._onTiltUpdate);
+      this._mouse = new MouseController(this._wrapperEl, this._onTiltUpdate);
       this._mouse.start();
     }
+    this._queueTick();
   }
 }
 
@@ -1156,50 +4034,1089 @@ class HolographicCard {
 
 const editorState = {
   sensitivity: 25,
-  holoSweep:   45,
+  realismAmount: 0.78,
+  diffractionOpacity: 0.52,
+  material: 'matte-carbon',
+  typography: {
+    primaryFont: 'manrope',
+    companyFont: 'geist-mono',
+    align: 'left',
+    lineOffsets: {
+      line1: { x: 0, y: 0 },
+      line2: { x: 0, y: 0 },
+      line3: { x: 0, y: 0 },
+    },
+  },
+  materialToneByMaterial: Object.create(null),
+  includes: {
+    name: true,
+    title: true,
+    company: true,
+    specular: true,
+    realism: true,
+    rim: true,
+    grain: true,
+    sticker: true,
+  },
 };
+
+const FONT_STACKS = {
+  manrope: "'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  'instrument-serif': "'Instrument Serif', 'Times New Roman', serif",
+  'geist-mono': "'Geist Mono', 'Courier New', monospace",
+  helvetica: "'Helvetica Neue', 'Arial', sans-serif",
+  georgia: "'Georgia', 'Times New Roman', serif",
+};
+
+const TEXTURE_FILES = {
+  carbonAlbedo: 'Texture/Carbon%20Fiber%20albedo%20(color).png',
+  carbonNormal: 'Texture/Carbon%20Fiber%20normal%20map.png',
+  carbonRoughness: 'Texture/Carbon%20Fiber%20roughness%20(grayscale).png',
+  brushedAlbedo: 'Texture/Premium%20Brushed%20Metal%20albedo%20(Amex-like%20direction).png',
+  brushedRoughness: 'Texture/Premium%20Brushed%20Metal%20roughness%20(grayscale).png',
+  forgedCarbonAlbedo: 'Texture/Forged%20Carbon%20Albedo.png',
+  forgedCarbonNormal: 'Texture/Forged%20Carbon%20Normal.png',
+  forgedCarbonRoughness: 'Texture/Forged%20Carbon%20Roughness.png',
+  blackPvdAlbedo: 'Texture/Black%20PVD%20Satin%20Metal%20Albedo.png',
+  blackPvdNormal: 'Texture/Black%20PVD%20Satin%20Metal%20Normal.png',
+  blackPvdRoughness: 'Texture/Black%20PVD%20Satin%20Metal%20Roughness%20.png',
+  blackPvdMetallic: 'Texture/Black%20PVD%20Satin%20Metal%20Metallic%20.png',
+  titaniumAlbedo: 'Texture/Bead-Blasted%20Titanium%20Albedo.png',
+  titaniumNormal: 'Texture/Bead-Blasted%20Titanium%20Normal.png',
+  titaniumRoughness: 'Texture/Bead-Blasted%20Titanium%20Roughness%20.png',
+  titaniumMetallic: 'Texture/Bead-Blasted%20Titanium%20Metallic%20.png',
+  ceramicAlbedo: 'Texture/Satin%20Ceramic%20Albedo%20.png',
+  ceramicNormal: 'Texture/Satin%20Ceramic%20Normal.png',
+  ceramicRoughness: 'Texture/Satin%20Ceramic%20Roughness.png',
+  ceramicMetallic: 'Texture/Satin%20Ceramic%20Metallic.png',
+};
+
+const MATERIAL_PRESETS = {
+  'matte-carbon': {
+    cardBg: '#1b1d22',
+    line1: '#dde3ee',
+    line2: '#aeb7c8',
+    line3: '#9ba4b5',
+    specIntensity: 0.09,
+    sensitivity: 11,
+    holoSweep: 3,
+    grainOpacity: 0.34,
+    diffractionOpacity: 0.0,
+    realism: {
+      mode: 'foil-physical',
+      opacity: 0.48,
+      baseColor: '#232a35',
+      roughness: 0.88,
+      metalness: 0.08,
+      clearcoat: 0.10,
+      clearcoatRoughness: 0.58,
+      iridescence: 0.0,
+      iridescenceIOR: 1.1,
+      iridescenceThicknessRange: [60, 140],
+      normalScaleX: 0.22,
+      normalScaleY: 0.22,
+      envMapIntensity: 0.34,
+      mapUrl: TEXTURE_FILES.carbonAlbedo,
+      roughnessMapUrl: TEXTURE_FILES.carbonRoughness,
+      normalMapUrl: TEXTURE_FILES.carbonNormal,
+      mapRepeat: [1, 1],
+      useMapColor: true,
+      useNormalMap: false,
+    },
+  },
+  'brushed-metal': {
+    cardBg: '#a5b0be',
+    line1: '#1f2f49',
+    line2: '#3f5473',
+    line3: '#5b7091',
+    specIntensity: 0.44,
+    sensitivity: 12,
+    holoSweep: 8,
+    grainOpacity: 0.22,
+    diffractionOpacity: 0.01,
+    realism: {
+      mode: 'foil-physical',
+      opacity: 0.76,
+      baseColor: '#d9e0ea',
+      roughness: 0.34,
+      metalness: 1.0,
+      clearcoat: 0.56,
+      clearcoatRoughness: 0.32,
+      iridescence: 0.0,
+      iridescenceIOR: 1.1,
+      iridescenceThicknessRange: [80, 140],
+      normalScaleX: 0.34,
+      normalScaleY: 0.06,
+      envMapIntensity: 0.9,
+      mapUrl: TEXTURE_FILES.brushedAlbedo,
+      roughnessMapUrl: TEXTURE_FILES.brushedRoughness,
+      mapRepeat: [1, 1],
+      useMapColor: true,
+      useNormalMap: true,
+    },
+  },
+  'forged-carbon': {
+    cardBg: '#151920',
+    line1: '#e1e7f1',
+    line2: '#b5bfce',
+    line3: '#98a4b8',
+    specIntensity: 0.14,
+    sensitivity: 12,
+    holoSweep: 4,
+    grainOpacity: 0.38,
+    diffractionOpacity: 0.0,
+    realism: {
+      mode: 'foil-physical',
+      opacity: 0.58,
+      baseColor: '#232b38',
+      roughness: 0.82,
+      metalness: 0.12,
+      clearcoat: 0.12,
+      clearcoatRoughness: 0.52,
+      iridescence: 0.0,
+      iridescenceIOR: 1.1,
+      iridescenceThicknessRange: [60, 140],
+      normalScaleX: 0.34,
+      normalScaleY: 0.30,
+      envMapIntensity: 0.44,
+      mapUrl: TEXTURE_FILES.forgedCarbonAlbedo,
+      roughnessMapUrl: TEXTURE_FILES.forgedCarbonRoughness,
+      normalMapUrl: TEXTURE_FILES.forgedCarbonNormal,
+      mapRepeat: [1, 1],
+      useMapColor: true,
+      useNormalMap: false,
+    },
+  },
+  'black-pvd': {
+    cardBg: '#10131a',
+    line1: '#eef3ff',
+    line2: '#b8c6de',
+    line3: '#91a1bf',
+    specIntensity: 0.56,
+    sensitivity: 13,
+    holoSweep: 8,
+    grainOpacity: 0.28,
+    diffractionOpacity: 0.02,
+    realism: {
+      mode: 'foil-physical',
+      opacity: 0.84,
+      baseColor: '#242b38',
+      roughness: 0.28,
+      metalness: 1.0,
+      clearcoat: 0.72,
+      clearcoatRoughness: 0.18,
+      iridescence: 0.0,
+      iridescenceIOR: 1.1,
+      iridescenceThicknessRange: [80, 140],
+      normalScaleX: 0.28,
+      normalScaleY: 0.08,
+      envMapIntensity: 1.12,
+      mapUrl: TEXTURE_FILES.blackPvdAlbedo,
+      roughnessMapUrl: TEXTURE_FILES.blackPvdRoughness,
+      normalMapUrl: TEXTURE_FILES.blackPvdNormal,
+      metalnessMapUrl: TEXTURE_FILES.blackPvdMetallic,
+      mapRepeat: [1, 1],
+      useMapColor: true,
+      useNormalMap: false,
+    },
+  },
+  'bead-blasted-titanium': {
+    cardBg: '#bcc5ce',
+    line1: '#1f2d3d',
+    line2: '#4a5f76',
+    line3: '#677d97',
+    specIntensity: 0.30,
+    sensitivity: 11,
+    holoSweep: 6,
+    grainOpacity: 0.26,
+    diffractionOpacity: 0.0,
+    realism: {
+      mode: 'foil-physical',
+      opacity: 0.74,
+      baseColor: '#d7dde4',
+      roughness: 0.56,
+      metalness: 1.0,
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.42,
+      iridescence: 0.0,
+      iridescenceIOR: 1.1,
+      iridescenceThicknessRange: [80, 140],
+      normalScaleX: 0.14,
+      normalScaleY: 0.14,
+      envMapIntensity: 0.84,
+      mapUrl: TEXTURE_FILES.titaniumAlbedo,
+      roughnessMapUrl: TEXTURE_FILES.titaniumRoughness,
+      normalMapUrl: TEXTURE_FILES.titaniumNormal,
+      metalnessMapUrl: TEXTURE_FILES.titaniumMetallic,
+      mapRepeat: [1, 1],
+      useMapColor: true,
+      useNormalMap: false,
+    },
+  },
+  'satin-ceramic': {
+    cardBg: '#d7dee3',
+    line1: '#26313d',
+    line2: '#506070',
+    line3: '#6f8092',
+    specIntensity: 0.08,
+    sensitivity: 10,
+    holoSweep: 2,
+    grainOpacity: 0.18,
+    diffractionOpacity: 0.0,
+    realism: {
+      mode: 'foil-physical',
+      opacity: 0.64,
+      baseColor: '#e7ecef',
+      roughness: 0.78,
+      metalness: 0.0,
+      clearcoat: 0.08,
+      clearcoatRoughness: 0.54,
+      iridescence: 0.0,
+      iridescenceIOR: 1.1,
+      iridescenceThicknessRange: [70, 130],
+      normalScaleX: 0.10,
+      normalScaleY: 0.10,
+      envMapIntensity: 0.46,
+      mapUrl: TEXTURE_FILES.ceramicAlbedo,
+      roughnessMapUrl: TEXTURE_FILES.ceramicRoughness,
+      normalMapUrl: TEXTURE_FILES.ceramicNormal,
+      metalnessMapUrl: TEXTURE_FILES.ceramicMetallic,
+      mapRepeat: [1, 1],
+      useMapColor: true,
+      useNormalMap: false,
+    },
+  },
+};
+
+const TINTABLE_MATERIALS = new Set([
+  'matte-carbon',
+  'brushed-metal',
+  'forged-carbon',
+  'black-pvd',
+  'bead-blasted-titanium',
+  'satin-ceramic',
+]);
+
+const ACTIVE_MATERIALS = new Set([
+  'matte-carbon',
+  'brushed-metal',
+  'forged-carbon',
+  'black-pvd',
+  'bead-blasted-titanium',
+  'satin-ceramic',
+]);
+
+const DEFAULT_SLIDER_PROFILE = {
+  spec: { min: 0, max: 1, step: 0.01, decimals: 2 },
+  tilt: { min: 5, max: 35, step: 1, decimals: 0 },
+  realism: { min: 0, max: 1, step: 0.01, decimals: 2 },
+  toneHue: { min: 0, max: 360, step: 1, decimals: 0 },
+  toneSat: { min: 0, max: 140, step: 1, decimals: 0 },
+  toneLight: { min: 18, max: 86, step: 1, decimals: 0 },
+  toneStrength: { min: 0, max: 1, step: 0.01, decimals: 2 },
+  toneNote: 'Tune color personality for this finish with hue, saturation, lightness, and strength.',
+};
+
+const MATERIAL_SLIDER_PROFILES = {
+  'matte-carbon': {
+    spec: { min: 0.03, max: 0.28, step: 0.01, decimals: 2 },
+    tilt: { min: 8, max: 20, step: 1, decimals: 0 },
+    realism: { min: 0.38, max: 0.72, step: 0.01, decimals: 2 },
+    toneHue: { min: 160, max: 360, step: 1, decimals: 0 },
+    toneSat: { min: 18, max: 130, step: 1, decimals: 0 },
+    toneLight: { min: 18, max: 58, step: 1, decimals: 0 },
+    toneStrength: { min: 0, max: 0.82, step: 0.01, decimals: 2 },
+    toneNote: 'Matte Carbon: strong color range, but tuned for darker low-gloss finishes.',
+  },
+  'brushed-metal': {
+    spec: { min: 0.20, max: 0.92, step: 0.01, decimals: 2 },
+    tilt: { min: 8, max: 26, step: 1, decimals: 0 },
+    realism: { min: 0.60, max: 0.96, step: 0.01, decimals: 2 },
+    toneHue: { min: 170, max: 320, step: 1, decimals: 0 },
+    toneSat: { min: 0, max: 84, step: 1, decimals: 0 },
+    toneLight: { min: 42, max: 86, step: 1, decimals: 0 },
+    toneStrength: { min: 0, max: 0.56, step: 0.01, decimals: 2 },
+    toneNote: 'Brushed Metal: narrower tint and higher reflectivity for realistic metal behavior.',
+  },
+  'forged-carbon': {
+    spec: { min: 0.06, max: 0.36, step: 0.01, decimals: 2 },
+    tilt: { min: 8, max: 22, step: 1, decimals: 0 },
+    realism: { min: 0.42, max: 0.78, step: 0.01, decimals: 2 },
+    toneHue: { min: 150, max: 360, step: 1, decimals: 0 },
+    toneSat: { min: 20, max: 126, step: 1, decimals: 0 },
+    toneLight: { min: 18, max: 62, step: 1, decimals: 0 },
+    toneStrength: { min: 0, max: 0.82, step: 0.01, decimals: 2 },
+    toneNote: 'Forged Carbon: bold tonal range with deeper texture contrast than twill carbon.',
+  },
+  'black-pvd': {
+    spec: { min: 0.25, max: 0.95, step: 0.01, decimals: 2 },
+    tilt: { min: 8, max: 24, step: 1, decimals: 0 },
+    realism: { min: 0.62, max: 0.96, step: 0.01, decimals: 2 },
+    toneHue: { min: 180, max: 340, step: 1, decimals: 0 },
+    toneSat: { min: 0, max: 72, step: 1, decimals: 0 },
+    toneLight: { min: 24, max: 70, step: 1, decimals: 0 },
+    toneStrength: { min: 0, max: 0.52, step: 0.01, decimals: 2 },
+    toneNote: 'Black PVD: keep tones restrained to preserve the dark coated-metal character.',
+  },
+  'bead-blasted-titanium': {
+    spec: { min: 0.12, max: 0.58, step: 0.01, decimals: 2 },
+    tilt: { min: 8, max: 22, step: 1, decimals: 0 },
+    realism: { min: 0.58, max: 0.90, step: 0.01, decimals: 2 },
+    toneHue: { min: 170, max: 300, step: 1, decimals: 0 },
+    toneSat: { min: 0, max: 46, step: 1, decimals: 0 },
+    toneLight: { min: 46, max: 86, step: 1, decimals: 0 },
+    toneStrength: { min: 0, max: 0.38, step: 0.01, decimals: 2 },
+    toneNote: 'Blasted Titanium: subtle tint window for realistic cool industrial metal shades.',
+  },
+  'satin-ceramic': {
+    spec: { min: 0.04, max: 0.24, step: 0.01, decimals: 2 },
+    tilt: { min: 8, max: 20, step: 1, decimals: 0 },
+    realism: { min: 0.46, max: 0.82, step: 0.01, decimals: 2 },
+    toneHue: { min: 160, max: 320, step: 1, decimals: 0 },
+    toneSat: { min: 0, max: 38, step: 1, decimals: 0 },
+    toneLight: { min: 38, max: 86, step: 1, decimals: 0 },
+    toneStrength: { min: 0, max: 0.30, step: 0.01, decimals: 2 },
+    toneNote: 'Satin Ceramic: low-saturation shifts keep the ceramic finish calm and believable.',
+  },
+};
+
+const DEFAULT_MATERIAL_TONE = Object.freeze({
+  hue: 210,
+  saturation: 60,
+  lightness: 50,
+  strength: 0,
+});
+
+const MATERIAL_TONE_PRESETS = {
+  'matte-carbon': { hue: 223, saturation: 66, lightness: 36, strength: 0.38 },
+  'brushed-metal': { hue: 214, saturation: 28, lightness: 67, strength: 0.20 },
+  'forged-carbon': { hue: 214, saturation: 74, lightness: 34, strength: 0.46 },
+  'black-pvd': { hue: 228, saturation: 34, lightness: 30, strength: 0.26 },
+  'bead-blasted-titanium': { hue: 208, saturation: 16, lightness: 68, strength: 0.14 },
+  'satin-ceramic': { hue: 186, saturation: 12, lightness: 72, strength: 0.10 },
+};
+
+const previewPanelEl = document.querySelector('.preview-panel');
+const showcaseToggleButton = document.getElementById('btn-showcase-toggle');
+const stage3D = new Stage3DLayer(previewPanelEl);
+stage3D.init();
 
 // Init card
 const card = new HolographicCard(document.getElementById('card-container'));
 card.init();
 
-// Monkey-patch _writeCSSVars to apply editor sensitivity + sweep
-const _origWriteCSSVars = card._writeCSSVars.bind(card);
+// Monkey-patch _writeCSSVars to apply editor sensitivity
+const cssVarCache = Object.create(null);
+function setCardVar(style, name, value) {
+  if (cssVarCache[name] === value) return;
+  cssVarCache[name] = value;
+  style.setProperty(name, value);
+}
 card._writeCSSVars = function(tilt) {
-  _origWriteCSSVars(tilt);
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  const shapeTilt = (value) => {
+    const safe = clamp(Number.isFinite(value) ? value : 0, -1, 1);
+    return Math.sign(safe) * Math.pow(Math.abs(safe), 0.82);
+  };
+  const shapedTilt = {
+    x: shapeTilt(tilt && tilt.x),
+    y: shapeTilt(tilt && tilt.y),
+  };
+  const tiltMagnitude = clamp(Math.hypot(shapedTilt.x, shapedTilt.y), 0, 1);
+
   const s = card._cardEl.style;
-  s.setProperty('--tilt-deg-x', tilt.y * editorState.sensitivity);
-  s.setProperty('--tilt-deg-y', tilt.x * editorState.sensitivity);
-  s.setProperty('--holo-angle', 180 + tilt.x * editorState.holoSweep);
+  const preset = MATERIAL_PRESETS[editorState.material] || {};
+  const sweep = preset.holoSweep != null ? preset.holoSweep : 8;
+  const holoAngle = 176 + shapedTilt.x * (sweep * 0.18) + shapedTilt.y * 2;
+  const specX = clamp(50 - shapedTilt.x * 16 + shapedTilt.y * 2, 30, 70);
+  const specY = clamp(46 - shapedTilt.y * 14 - Math.abs(shapedTilt.x) * 1.2, 28, 72);
+  const specWidth = clamp(46 - tiltMagnitude * 6, 38, 48);
+  const specHeight = clamp(24 - tiltMagnitude * 4, 18, 26);
+  const baseDiffraction = preset.diffractionOpacity != null ? preset.diffractionOpacity : editorState.diffractionOpacity;
+  const diffractionOpacity = clamp(baseDiffraction, 0, 0.28);
+
+  setCardVar(s, '--tilt-x', shapedTilt.x.toFixed(4));
+  setCardVar(s, '--tilt-y', shapedTilt.y.toFixed(4));
+  setCardVar(s, '--tilt-deg-x', (shapedTilt.y * editorState.sensitivity).toFixed(3));
+  setCardVar(s, '--tilt-deg-y', (shapedTilt.x * editorState.sensitivity).toFixed(3));
+  setCardVar(s, '--holo-angle', holoAngle.toFixed(3));
+  setCardVar(s, '--spec-x', specX.toFixed(2));
+  setCardVar(s, '--spec-y', specY.toFixed(2));
+  setCardVar(s, '--spec-width', `${specWidth.toFixed(2)}%`);
+  setCardVar(s, '--spec-height', `${specHeight.toFixed(2)}%`);
+  setCardVar(s, '--spec-rotation', `${(holoAngle - 26).toFixed(2)}deg`);
+  setCardVar(s, '--spec-opacity', (0.62 + tiltMagnitude * 0.08).toFixed(3));
+  setCardVar(s, '--foil-shift-x', '0%');
+  setCardVar(s, '--foil-shift-y', '0%');
+  setCardVar(s, '--diffraction-opacity', diffractionOpacity.toFixed(3));
+  setCardVar(s, '--surface-shadow-x', `${(shapedTilt.x * 12).toFixed(2)}%`);
+  setCardVar(s, '--surface-shadow-y', `${(shapedTilt.y * 14).toFixed(2)}%`);
+  setCardVar(s, '--surface-darkness', (0.14 + tiltMagnitude * 0.16).toFixed(3));
+  setCardVar(s, '--edge-top-opacity', (0.08 + Math.max(0, -shapedTilt.y) * 0.22 + tiltMagnitude * 0.04).toFixed(3));
+  setCardVar(s, '--edge-right-opacity', (0.07 + Math.max(0, -shapedTilt.x) * 0.18 + tiltMagnitude * 0.03).toFixed(3));
+  setCardVar(s, '--edge-bottom-opacity', (0.13 + Math.max(0, shapedTilt.y) * 0.22 + tiltMagnitude * 0.05).toFixed(3));
+  setCardVar(s, '--edge-left-opacity', (0.07 + Math.max(0, shapedTilt.x) * 0.18 + tiltMagnitude * 0.03).toFixed(3));
+  setCardVar(s, '--shadow-x', (-shapedTilt.x * 20).toFixed(3));
+  setCardVar(s, '--shadow-y', (-shapedTilt.y * 16 + tiltMagnitude * 2.2).toFixed(3));
+  if (stage3D) {
+    stage3D.setTilt(shapedTilt);
+  }
+  if (card._realism) {
+    card._realism.update(shapedTilt, holoAngle, card._state && card._state.reducedMotion);
+  }
 };
 
 // ─── Helper: get card DOM refs ────────────────────────────────────────────────
 
 function getCardEl()     { return card._cardEl; }
+function getCardContent() { return card && card._content; }
+function getTextContainerEl() { return getCardContent() && getCardContent()._container; }
 function getNameEl()     { return card._content && card._content._nameEl; }
 function getTitleEl()    { return card._content && card._content._titleEl; }
 function getCompanyEl()  { return card._content && card._content._companyEl; }
-function getHoloEl()     { return getCardEl() && getCardEl().querySelector('.holo-layer'); }
 function getSpecularEl() { return getCardEl() && getCardEl().querySelector('.specular-layer'); }
+function getDiffractionEl() { return getCardEl() && getCardEl().querySelector('.diffraction-layer'); }
+function getSurfaceShadingEl() { return getCardEl() && getCardEl().querySelector('.surface-shading-layer'); }
+function getGrainEl()    { return getCardEl() && getCardEl().querySelector('.grain-layer'); }
+function getStickerEl()  { return getCardEl() && getCardEl().querySelector('.holo-sticker'); }
+function getRealismLayer() { return card && card._realism; }
+
+function resolveMaskTextLines() {
+  const getText = (id, fallback) => {
+    const input = document.getElementById(id);
+    if (!input || typeof input.value !== 'string') return fallback;
+    const value = input.value.trim();
+    return value || fallback;
+  };
+
+  return {
+    line1: getText('input-line1', 'Nico Prasetyo'),
+    line2: getText('input-line2', 'Founder'),
+    line3: getText('input-line3', 'Nizi Labs'),
+    includes: {
+      line1: !!editorState.includes.name,
+      line2: !!editorState.includes.title,
+      line3: !!editorState.includes.company,
+    },
+  };
+}
+
+function syncRealismTextMask() {
+  const realismLayer = getRealismLayer();
+  if (!realismLayer || typeof realismLayer.setTextMaskLines !== 'function') return;
+  realismLayer.setTextMaskLines(resolveMaskTextLines());
+}
+
+function setColorControl(pickerId, swatchId, hexId, value) {
+  const picker = document.getElementById(pickerId);
+  const swatch = document.getElementById(swatchId);
+  const hexEl  = document.getElementById(hexId);
+  if (picker) picker.value = value;
+  if (swatch) swatch.style.background = value;
+  if (hexEl) hexEl.textContent = value.toLowerCase();
+}
+
+function setSliderControl(sliderId, valId, value, decimals) {
+  const slider = document.getElementById(sliderId);
+  const valEl  = document.getElementById(valId);
+  if (slider) slider.value = String(value);
+  if (valEl) valEl.textContent = Number(value).toFixed(decimals);
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getSliderProfile(materialId) {
+  return MATERIAL_SLIDER_PROFILES[materialId] || DEFAULT_SLIDER_PROFILE;
+}
+
+function getSliderRange(materialId, key) {
+  const profile = getSliderProfile(materialId);
+  return profile[key] || DEFAULT_SLIDER_PROFILE[key];
+}
+
+function clampBySliderRange(materialId, key, value) {
+  const range = getSliderRange(materialId, key);
+  return clampNumber(Number(value), range.min, range.max);
+}
+
+function setSliderBounds(sliderId, range) {
+  const slider = document.getElementById(sliderId);
+  if (!slider || !range) return;
+  slider.min = String(range.min);
+  slider.max = String(range.max);
+  slider.step = String(range.step);
+}
+
+function applyMaterialSliderProfile(materialId) {
+  setSliderBounds('slider-spec', getSliderRange(materialId, 'spec'));
+  setSliderBounds('slider-tilt', getSliderRange(materialId, 'tilt'));
+  setSliderBounds('slider-realism', getSliderRange(materialId, 'realism'));
+  setSliderBounds('slider-tone-hue', getSliderRange(materialId, 'toneHue'));
+  setSliderBounds('slider-tone-sat', getSliderRange(materialId, 'toneSat'));
+  setSliderBounds('slider-tone-light', getSliderRange(materialId, 'toneLight'));
+  setSliderBounds('slider-tone-strength', getSliderRange(materialId, 'toneStrength'));
+}
+
+function normalizeMaterialTone(materialId) {
+  const tone = getMaterialTone(materialId);
+  tone.hue = clampBySliderRange(materialId, 'toneHue', tone.hue);
+  tone.saturation = clampBySliderRange(materialId, 'toneSat', tone.saturation);
+  tone.lightness = clampBySliderRange(materialId, 'toneLight', tone.lightness);
+  tone.strength = clampBySliderRange(materialId, 'toneStrength', tone.strength);
+  return tone;
+}
+
+function getDefaultMaterialTone(materialId) {
+  const presetTone = MATERIAL_TONE_PRESETS[materialId] || {};
+  return {
+    hue: clampBySliderRange(materialId, 'toneHue', presetTone.hue != null ? presetTone.hue : DEFAULT_MATERIAL_TONE.hue),
+    saturation: clampBySliderRange(materialId, 'toneSat', presetTone.saturation != null ? presetTone.saturation : DEFAULT_MATERIAL_TONE.saturation),
+    lightness: clampBySliderRange(materialId, 'toneLight', presetTone.lightness != null ? presetTone.lightness : DEFAULT_MATERIAL_TONE.lightness),
+    strength: clampBySliderRange(materialId, 'toneStrength', presetTone.strength != null ? presetTone.strength : DEFAULT_MATERIAL_TONE.strength),
+  };
+}
+
+function getMaterialTone(materialId) {
+  if (!editorState.materialToneByMaterial[materialId]) {
+    editorState.materialToneByMaterial[materialId] = getDefaultMaterialTone(materialId);
+  }
+  return editorState.materialToneByMaterial[materialId];
+}
+
+function setToneControlValue(sliderId, valId, value, decimals, suffix) {
+  const slider = document.getElementById(sliderId);
+  const valEl = document.getElementById(valId);
+  const numValue = Number(value);
+  if (slider) slider.value = String(numValue);
+  if (valEl) valEl.textContent = `${numValue.toFixed(decimals)}${suffix || ''}`;
+}
+
+function syncMaterialToneControls(materialId) {
+  applyMaterialSliderProfile(materialId);
+  const tone = normalizeMaterialTone(materialId);
+  const tintable = TINTABLE_MATERIALS.has(materialId);
+  const profile = getSliderProfile(materialId);
+  const hueRange = getSliderRange(materialId, 'toneHue');
+  const satRange = getSliderRange(materialId, 'toneSat');
+  const lightRange = getSliderRange(materialId, 'toneLight');
+  const strengthRange = getSliderRange(materialId, 'toneStrength');
+
+  setToneControlValue('slider-tone-hue', 'val-tone-hue', tone.hue, hueRange.decimals, '°');
+  setToneControlValue('slider-tone-sat', 'val-tone-sat', tone.saturation, satRange.decimals, '%');
+  setToneControlValue('slider-tone-light', 'val-tone-light', tone.lightness, lightRange.decimals, '%');
+  setToneControlValue('slider-tone-strength', 'val-tone-strength', tone.strength, strengthRange.decimals, '');
+
+  ['slider-tone-hue', 'slider-tone-sat', 'slider-tone-light', 'slider-tone-strength', 'btn-tone-reset'].forEach((id) => {
+    const element = document.getElementById(id);
+    if (element) element.disabled = !tintable;
+  });
+
+  const note = document.getElementById('tone-note');
+  if (note) {
+    note.textContent = tintable
+      ? profile.toneNote
+      : 'Selected material does not support tone tuning.';
+  }
+}
+
+function hslToRgb(h, s, l) {
+  const hue = ((h % 360) + 360) % 360;
+  const sat = clampNumber(s, 0, 100) / 100;
+  const light = clampNumber(l, 0, 100) / 100;
+
+  const chroma = (1 - Math.abs(2 * light - 1)) * sat;
+  const segment = hue / 60;
+  const second = chroma * (1 - Math.abs((segment % 2) - 1));
+  const match = light - chroma / 2;
+
+  let rPrime = 0;
+  let gPrime = 0;
+  let bPrime = 0;
+
+  if (segment >= 0 && segment < 1) {
+    rPrime = chroma;
+    gPrime = second;
+  } else if (segment < 2) {
+    rPrime = second;
+    gPrime = chroma;
+  } else if (segment < 3) {
+    gPrime = chroma;
+    bPrime = second;
+  } else if (segment < 4) {
+    gPrime = second;
+    bPrime = chroma;
+  } else if (segment < 5) {
+    rPrime = second;
+    bPrime = chroma;
+  } else {
+    rPrime = chroma;
+    bPrime = second;
+  }
+
+  return {
+    r: Math.round((rPrime + match) * 255),
+    g: Math.round((gPrime + match) * 255),
+    b: Math.round((bPrime + match) * 255),
+  };
+}
+
+function componentToHex(component) {
+  const clamped = clampNumber(Math.round(component), 0, 255);
+  return clamped.toString(16).padStart(2, '0');
+}
+
+function rgbToHex(rgb) {
+  return `#${componentToHex(rgb.r)}${componentToHex(rgb.g)}${componentToHex(rgb.b)}`;
+}
+
+function normalizeHexColor(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed)) return null;
+  if (trimmed.length === 4) {
+    return `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`.toLowerCase();
+  }
+  return trimmed.toLowerCase();
+}
+
+function hexToRgb(hex) {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return null;
+  return {
+    r: parseInt(normalized.slice(1, 3), 16),
+    g: parseInt(normalized.slice(3, 5), 16),
+    b: parseInt(normalized.slice(5, 7), 16),
+  };
+}
+
+function blendHex(baseHex, tintHex, ratio) {
+  const mix = clampNumber(ratio, 0, 1);
+  const baseRgb = hexToRgb(baseHex) || { r: 255, g: 255, b: 255 };
+  const tintRgb = hexToRgb(tintHex) || baseRgb;
+  return rgbToHex({
+    r: baseRgb.r + (tintRgb.r - baseRgb.r) * mix,
+    g: baseRgb.g + (tintRgb.g - baseRgb.g) * mix,
+    b: baseRgb.b + (tintRgb.b - baseRgb.b) * mix,
+  });
+}
+
+function toneToHex(tone) {
+  return rgbToHex(hslToRgb(tone.hue, tone.saturation, tone.lightness));
+}
+
+function buildTintedRealismPreset(materialId, presetRealism) {
+  const basePreset = Object.assign({}, presetRealism || {});
+  if (!TINTABLE_MATERIALS.has(materialId)) return basePreset;
+
+  const tone = normalizeMaterialTone(materialId);
+  const tintStrength = clampBySliderRange(materialId, 'toneStrength', tone.strength);
+  if (tintStrength <= 0.001) return basePreset;
+
+  const tintHex = toneToHex(tone);
+  basePreset.baseColor = blendHex(basePreset.baseColor || '#ffffff', tintHex, Math.min(0.62, tintStrength * 0.72));
+
+  if (typeof basePreset.sheenColor === 'string') {
+    basePreset.sheenColor = blendHex(basePreset.sheenColor, tintHex, Math.min(0.46, tintStrength * 0.58));
+  }
+
+  return basePreset;
+}
+
+function applyMaterialTone(materialId, options) {
+  const opts = options || {};
+  const tone = normalizeMaterialTone(materialId);
+  const tintable = TINTABLE_MATERIALS.has(materialId);
+  const tintStrength = tintable ? clampBySliderRange(materialId, 'toneStrength', tone.strength) : 0;
+  const cardEl = getCardEl();
+
+  if (cardEl) {
+    const tintColor = `hsl(${Math.round(tone.hue)} ${Math.round(tone.saturation)}% ${Math.round(tone.lightness)}%)`;
+    cardEl.style.setProperty('--material-tint-color', tintColor);
+    cardEl.style.setProperty('--material-tint-strength', tintStrength.toFixed(3));
+  }
+
+  if (opts.syncControls !== false) {
+    syncMaterialToneControls(materialId);
+  }
+}
+
+function reapplyActiveRealismMaterial() {
+  const materialId = editorState.material;
+  const preset = MATERIAL_PRESETS[materialId];
+  const realismLayer = getRealismLayer();
+  if (!preset || !realismLayer) return;
+  realismLayer.applyMaterial(buildTintedRealismPreset(materialId, preset.realism));
+  realismLayer.setOpacity(editorState.realismAmount);
+}
+
+function ensureGrainLayer() {
+  const cardEl = getCardEl();
+  if (!cardEl) return null;
+  const existing = getGrainEl();
+  if (existing) return existing;
+
+  const grainEl = document.createElement('div');
+  grainEl.className = 'grain-layer';
+  const clip = cardEl.querySelector('.card-inner-clip');
+  (clip || cardEl).appendChild(grainEl);
+  return grainEl;
+}
+
+function ensureDiffractionLayer() {
+  const cardEl = getCardEl();
+  if (!cardEl) return null;
+  const existing = getDiffractionEl();
+  if (existing) return existing;
+
+  const diffractionEl = document.createElement('div');
+  diffractionEl.className = 'diffraction-layer';
+  const clip = cardEl.querySelector('.card-inner-clip');
+  (clip || cardEl).appendChild(diffractionEl);
+  return diffractionEl;
+}
+
+function ensureSurfaceShadingLayer() {
+  const cardEl = getCardEl();
+  if (!cardEl) return null;
+  const existing = getSurfaceShadingEl();
+  if (existing) return existing;
+
+  const shadingEl = document.createElement('div');
+  shadingEl.className = 'surface-shading-layer';
+  const clip = cardEl.querySelector('.card-inner-clip');
+  (clip || cardEl).appendChild(shadingEl);
+  return shadingEl;
+}
+
+function ensureStickerLayer() {
+  const cardEl = getCardEl();
+  if (!cardEl) return null;
+  const existing = getStickerEl();
+  if (existing) return existing;
+
+  const stickerEl = document.createElement('div');
+  stickerEl.className = 'holo-sticker';
+  const clip = cardEl.querySelector('.card-inner-clip');
+  (clip || cardEl).appendChild(stickerEl);
+  return stickerEl;
+}
+
+function ensureDetailLayers() {
+  ensureDiffractionLayer();
+  ensureSurfaceShadingLayer();
+  ensureGrainLayer();
+  ensureStickerLayer();
+}
+
+function setActiveMaterialButton(materialId) {
+  const buttons = document.querySelectorAll('.material-option');
+  for (const button of buttons) {
+    const isActive = button.dataset.material === materialId;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  }
+}
+
+function applyIncludeState() {
+  const includes = editorState.includes;
+
+  const nameEl = getNameEl();
+  if (nameEl) nameEl.style.display = includes.name ? '' : 'none';
+
+  const titleEl = getTitleEl();
+  if (titleEl) titleEl.style.display = includes.title ? '' : 'none';
+
+  const companyEl = getCompanyEl();
+  if (companyEl) companyEl.style.display = includes.company ? '' : 'none';
+
+  const specEl = getSpecularEl();
+  if (specEl) specEl.style.display = includes.specular ? 'block' : 'none';
+
+  const realismLayer = getRealismLayer();
+  if (realismLayer) realismLayer.setEnabled(includes.realism);
+
+  const cardEl = getCardEl();
+  if (cardEl) {
+    cardEl.classList.toggle('feature-no-realism', !includes.realism);
+    cardEl.classList.toggle('feature-no-rim', !includes.rim);
+    cardEl.classList.toggle('feature-no-grain', !includes.grain);
+    cardEl.classList.toggle('feature-no-sticker', !includes.sticker);
+  }
+
+  syncRealismTextMask();
+}
+
+function applyMaterialPreset(materialId, options) {
+  if (!ACTIVE_MATERIALS.has(materialId)) return;
+  const preset = MATERIAL_PRESETS[materialId];
+  if (!preset) return;
+
+  const opts = options || {};
+  const syncControls = opts.syncControls !== false;
+  const specIntensity = clampBySliderRange(materialId, 'spec', preset.specIntensity);
+  const sensitivity = clampBySliderRange(materialId, 'tilt', preset.sensitivity);
+  const realismOpacity = clampBySliderRange(materialId, 'realism', preset.realism.opacity);
+
+  editorState.material = materialId;
+  editorState.sensitivity = sensitivity;
+  editorState.realismAmount = realismOpacity;
+  editorState.diffractionOpacity = preset.diffractionOpacity != null ? preset.diffractionOpacity : editorState.diffractionOpacity;
+
+  applyMaterialSliderProfile(materialId);
+
+  const cardEl = getCardEl();
+  if (cardEl) {
+    cardEl.dataset.material = materialId;
+    cardEl.style.backgroundColor = preset.cardBg;
+    cardEl.style.setProperty('--grain-opacity', preset.grainOpacity);
+    cardEl.style.setProperty('--diffraction-opacity', editorState.diffractionOpacity);
+  }
+
+  const nameEl = getNameEl();
+  if (nameEl) nameEl.style.color = preset.line1;
+
+  const titleEl = getTitleEl();
+  if (titleEl) titleEl.style.color = preset.line2;
+
+  const companyEl = getCompanyEl();
+  if (companyEl) companyEl.style.color = preset.line3;
+
+  const specEl = getSpecularEl();
+  if (specEl) specEl.style.setProperty('--spec-intensity', specIntensity);
+
+  const realismLayer = getRealismLayer();
+  if (realismLayer) {
+    const realismConfig = Object.assign({}, preset.realism, { opacity: realismOpacity });
+    realismLayer.applyMaterial(buildTintedRealismPreset(materialId, realismConfig));
+    realismLayer.setOpacity(realismOpacity);
+  }
+
+  applyMaterialTone(materialId, { syncControls });
+
+  if (syncControls) {
+    setColorControl('picker-color1', 'swatch-color1', 'hex-color1', preset.line1);
+    setColorControl('picker-color2', 'swatch-color2', 'hex-color2', preset.line2);
+    setColorControl('picker-color3', 'swatch-color3', 'hex-color3', preset.line3);
+    setSliderControl('slider-spec', 'val-spec', specIntensity, getSliderRange(materialId, 'spec').decimals);
+    setSliderControl('slider-tilt', 'val-tilt', sensitivity, getSliderRange(materialId, 'tilt').decimals);
+    setSliderControl('slider-realism', 'val-realism', realismOpacity, getSliderRange(materialId, 'realism').decimals);
+  }
+
+  setActiveMaterialButton(materialId);
+  applyIncludeState();
+}
 
 // ─── TEXT controls ────────────────────────────────────────────────────────────
+
+const TEXT_LAYOUT_DEFAULTS = Object.freeze({
+  primaryFont: 'manrope',
+  companyFont: 'geist-mono',
+  align: 'left',
+  lineOffsets: Object.freeze({
+    line1: Object.freeze({ x: 0, y: 0 }),
+    line2: Object.freeze({ x: 0, y: 0 }),
+    line3: Object.freeze({ x: 0, y: 0 }),
+  }),
+});
+
+const TEXT_LINE_KEYS = ['line1', 'line2', 'line3'];
+const TEXT_LINE_CONTROL_MAP = {
+  line1: {
+    x: { sliderId: 'slider-line1-x', valueId: 'val-line1-x' },
+    y: { sliderId: 'slider-line1-y', valueId: 'val-line1-y' },
+  },
+  line2: {
+    x: { sliderId: 'slider-line2-x', valueId: 'val-line2-x' },
+    y: { sliderId: 'slider-line2-y', valueId: 'val-line2-y' },
+  },
+  line3: {
+    x: { sliderId: 'slider-line3-x', valueId: 'val-line3-x' },
+    y: { sliderId: 'slider-line3-y', valueId: 'val-line3-y' },
+  },
+};
+const TEXT_ALIGN_OPTIONS = new Set(['left', 'center', 'right']);
+const TEXT_OFFSET_LIMIT = 72;
+
+function createDefaultTypographyState() {
+  return {
+    primaryFont: TEXT_LAYOUT_DEFAULTS.primaryFont,
+    companyFont: TEXT_LAYOUT_DEFAULTS.companyFont,
+    align: TEXT_LAYOUT_DEFAULTS.align,
+    lineOffsets: {
+      line1: { x: 0, y: 0 },
+      line2: { x: 0, y: 0 },
+      line3: { x: 0, y: 0 },
+    },
+  };
+}
+
+function ensureTypographyState() {
+  if (!editorState.typography || typeof editorState.typography !== 'object') {
+    editorState.typography = createDefaultTypographyState();
+  }
+
+  const typography = editorState.typography;
+  if (!typography.lineOffsets || typeof typography.lineOffsets !== 'object') {
+    typography.lineOffsets = {
+      line1: { x: 0, y: 0 },
+      line2: { x: 0, y: 0 },
+      line3: { x: 0, y: 0 },
+    };
+  }
+
+  for (const lineKey of TEXT_LINE_KEYS) {
+    const offset = typography.lineOffsets[lineKey];
+    if (!offset || typeof offset !== 'object') {
+      typography.lineOffsets[lineKey] = { x: 0, y: 0 };
+    }
+  }
+
+  return typography;
+}
+
+function clampTextOffset(value) {
+  if (!Number.isFinite(value)) return 0;
+  return clampNumber(Number(value), -TEXT_OFFSET_LIMIT, TEXT_OFFSET_LIMIT);
+}
+
+function applyTypographyState(options) {
+  const opts = options || {};
+  const typography = ensureTypographyState();
+
+  const primaryFont = FONT_STACKS[typography.primaryFont] ? typography.primaryFont : TEXT_LAYOUT_DEFAULTS.primaryFont;
+  const companyFont = FONT_STACKS[typography.companyFont] ? typography.companyFont : TEXT_LAYOUT_DEFAULTS.companyFont;
+  const align = TEXT_ALIGN_OPTIONS.has(typography.align) ? typography.align : TEXT_LAYOUT_DEFAULTS.align;
+
+  const lineOffsets = {};
+  for (const lineKey of TEXT_LINE_KEYS) {
+    const offset = typography.lineOffsets[lineKey] || { x: 0, y: 0 };
+    const x = clampTextOffset(offset.x);
+    const y = clampTextOffset(offset.y);
+    typography.lineOffsets[lineKey] = { x, y };
+    lineOffsets[lineKey] = { x, y };
+  }
+
+  typography.primaryFont = primaryFont;
+  typography.companyFont = companyFont;
+  typography.align = align;
+
+  const content = getCardContent();
+  if (content && typeof content.setTypography === 'function') {
+    content.setTypography({
+      primaryFontFamily: FONT_STACKS[primaryFont],
+      companyFontFamily: FONT_STACKS[companyFont],
+      align,
+      lineOffsets,
+    });
+  }
+
+  if (opts.syncControls === false) return;
+
+  const primarySelect = document.getElementById('select-primary-font');
+  const companySelect = document.getElementById('select-company-font');
+  const alignSelect = document.getElementById('select-text-align');
+
+  if (primarySelect) primarySelect.value = primaryFont;
+  if (companySelect) companySelect.value = companyFont;
+  if (alignSelect) alignSelect.value = align;
+
+  for (const lineKey of TEXT_LINE_KEYS) {
+    const control = TEXT_LINE_CONTROL_MAP[lineKey];
+    if (!control) continue;
+    const offset = typography.lineOffsets[lineKey] || { x: 0, y: 0 };
+
+    const sliderX = document.getElementById(control.x.sliderId);
+    const valueX = document.getElementById(control.x.valueId);
+    const sliderY = document.getElementById(control.y.sliderId);
+    const valueY = document.getElementById(control.y.valueId);
+
+    if (sliderX) sliderX.value = String(offset.x);
+    if (valueX) valueX.textContent = `${Math.round(offset.x)}px`;
+    if (sliderY) sliderY.value = String(offset.y);
+    if (valueY) valueY.textContent = `${Math.round(offset.y)}px`;
+  }
+}
+
+function wireTypographyControls() {
+  const primarySelect = document.getElementById('select-primary-font');
+  const companySelect = document.getElementById('select-company-font');
+  const alignSelect = document.getElementById('select-text-align');
+  const resetButton = document.getElementById('btn-text-layout-reset');
+
+  if (primarySelect) {
+    primarySelect.addEventListener('change', function() {
+      editorState.typography.primaryFont = this.value;
+      applyTypographyState({ syncControls: true });
+    });
+  }
+
+  if (companySelect) {
+    companySelect.addEventListener('change', function() {
+      editorState.typography.companyFont = this.value;
+      applyTypographyState({ syncControls: true });
+    });
+  }
+
+  if (alignSelect) {
+    alignSelect.addEventListener('change', function() {
+      editorState.typography.align = this.value;
+      applyTypographyState({ syncControls: true });
+    });
+  }
+
+  for (const lineKey of TEXT_LINE_KEYS) {
+    const control = TEXT_LINE_CONTROL_MAP[lineKey];
+    if (!control) continue;
+
+    const sliderX = document.getElementById(control.x.sliderId);
+    if (sliderX) {
+      sliderX.addEventListener('input', function() {
+        const typography = ensureTypographyState();
+        typography.lineOffsets[lineKey].x = clampTextOffset(parseFloat(this.value));
+        applyTypographyState({ syncControls: true });
+      });
+    }
+
+    const sliderY = document.getElementById(control.y.sliderId);
+    if (sliderY) {
+      sliderY.addEventListener('input', function() {
+        const typography = ensureTypographyState();
+        typography.lineOffsets[lineKey].y = clampTextOffset(parseFloat(this.value));
+        applyTypographyState({ syncControls: true });
+      });
+    }
+  }
+
+  if (resetButton) {
+    resetButton.addEventListener('click', () => {
+      editorState.typography = createDefaultTypographyState();
+      applyTypographyState({ syncControls: true });
+    });
+  }
+}
+
+wireTypographyControls();
+applyTypographyState({ syncControls: true });
 
 document.getElementById('input-line1').addEventListener('input', function() {
   const el = getNameEl();
   if (el) el.textContent = this.value;
+  syncRealismTextMask();
 });
 
 document.getElementById('input-line2').addEventListener('input', function() {
   const el = getTitleEl();
   if (el) el.textContent = this.value;
+  syncRealismTextMask();
 });
 
 document.getElementById('input-line3').addEventListener('input', function() {
   const el = getCompanyEl();
   if (el) el.textContent = this.value;
+  syncRealismTextMask();
 });
-
-// ─── CARD COLOR ───────────────────────────────────────────────────────────────
 
 function wireColorPicker(pickerId, swatchId, hexId, onChange) {
   const picker = document.getElementById(pickerId);
@@ -1208,15 +5125,10 @@ function wireColorPicker(pickerId, swatchId, hexId, onChange) {
 
   picker.addEventListener('input', function() {
     swatch.style.background = this.value;
-    hexEl.textContent = this.value;
+    hexEl.textContent = this.value.toLowerCase();
     onChange(this.value);
   });
 }
-
-wireColorPicker('picker-card-bg', 'swatch-card-bg', 'hex-card-bg', (val) => {
-  const el = getCardEl();
-  if (el) el.style.backgroundColor = val;
-});
 
 // ─── TEXT COLORS ──────────────────────────────────────────────────────────────
 
@@ -1237,33 +5149,305 @@ wireColorPicker('picker-color3', 'swatch-color3', 'hex-color3', (val) => {
 
 // ─── HOLOGRAPHIC sliders ──────────────────────────────────────────────────────
 
-function wireSlider(sliderId, valId, decimals, onChange) {
+function wireSlider(sliderId, valId, profileKey, fallbackDecimals, onChange) {
   const slider = document.getElementById(sliderId);
   const valEl  = document.getElementById(valId);
 
   slider.addEventListener('input', function() {
-    const v = parseFloat(this.value);
+    const materialId = editorState.material;
+    const range = getSliderRange(materialId, profileKey);
+    const decimals = range.decimals != null ? range.decimals : fallbackDecimals;
+    const v = clampBySliderRange(materialId, profileKey, parseFloat(this.value));
+    this.value = String(v);
     valEl.textContent = v.toFixed(decimals);
     onChange(v);
   });
 }
 
-wireSlider('slider-holo', 'val-holo', 2, (v) => {
-  const el = getHoloEl();
-  if (el) el.style.opacity = v;
-});
-
-wireSlider('slider-spec', 'val-spec', 2, (v) => {
+wireSlider('slider-spec', 'val-spec', 'spec', 2, (v) => {
   const el = getSpecularEl();
   if (el) el.style.setProperty('--spec-intensity', v);
 });
 
-wireSlider('slider-tilt', 'val-tilt', 0, (v) => {
+wireSlider('slider-tilt', 'val-tilt', 'tilt', 0, (v) => {
   editorState.sensitivity = v;
 });
 
-wireSlider('slider-sweep', 'val-sweep', 0, (v) => {
-  editorState.holoSweep = v;
+wireSlider('slider-realism', 'val-realism', 'realism', 2, (v) => {
+  editorState.realismAmount = v;
+  const realismLayer = getRealismLayer();
+  if (realismLayer) realismLayer.setOpacity(v);
+});
+
+function wireToneSlider(sliderId, valId, toneProfileKey, fallbackDecimals, suffix, onToneChange) {
+  const slider = document.getElementById(sliderId);
+  const valEl = document.getElementById(valId);
+  if (!slider || !valEl) return;
+
+  slider.addEventListener('input', function() {
+    const rawValue = parseFloat(this.value);
+    if (!Number.isFinite(rawValue)) return;
+
+    const materialId = editorState.material;
+    const range = getSliderRange(materialId, toneProfileKey);
+    const decimals = range.decimals != null ? range.decimals : fallbackDecimals;
+    const value = clampBySliderRange(materialId, toneProfileKey, rawValue);
+    const tone = getMaterialTone(materialId);
+    onToneChange(tone, value);
+
+    this.value = String(value);
+    valEl.textContent = `${value.toFixed(decimals)}${suffix}`;
+    applyMaterialTone(materialId, { syncControls: false });
+    reapplyActiveRealismMaterial();
+  });
+}
+
+wireToneSlider('slider-tone-hue', 'val-tone-hue', 'toneHue', 0, '°', (tone, value) => {
+  tone.hue = value;
+});
+
+wireToneSlider('slider-tone-sat', 'val-tone-sat', 'toneSat', 0, '%', (tone, value) => {
+  tone.saturation = value;
+});
+
+wireToneSlider('slider-tone-light', 'val-tone-light', 'toneLight', 0, '%', (tone, value) => {
+  tone.lightness = value;
+});
+
+wireToneSlider('slider-tone-strength', 'val-tone-strength', 'toneStrength', 2, '', (tone, value) => {
+  tone.strength = value;
+});
+
+const toneResetButton = document.getElementById('btn-tone-reset');
+if (toneResetButton) {
+  toneResetButton.addEventListener('click', () => {
+    const materialId = editorState.material;
+    editorState.materialToneByMaterial[materialId] = getDefaultMaterialTone(materialId);
+    applyMaterialTone(materialId, { syncControls: true });
+    reapplyActiveRealismMaterial();
+  });
+}
+
+// ─── Builder controls ─────────────────────────────────────────────────────────
+
+function wireIncludeToggle(inputId, key) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.checked = !!editorState.includes[key];
+  input.addEventListener('change', function() {
+    editorState.includes[key] = this.checked;
+    applyIncludeState();
+  });
+}
+
+wireIncludeToggle('check-name', 'name');
+wireIncludeToggle('check-title', 'title');
+wireIncludeToggle('check-company', 'company');
+wireIncludeToggle('check-specular', 'specular');
+wireIncludeToggle('check-realism', 'realism');
+wireIncludeToggle('check-rim', 'rim');
+wireIncludeToggle('check-grain', 'grain');
+wireIncludeToggle('check-sticker', 'sticker');
+
+const materialButtons = document.querySelectorAll('.material-option');
+for (const button of materialButtons) {
+  button.addEventListener('click', () => {
+    const materialId = button.dataset.material;
+    applyMaterialPreset(materialId, { syncControls: true });
+  });
+}
+
+ensureDetailLayers();
+applyMaterialPreset(editorState.material, { syncControls: true });
+applyIncludeState();
+
+// ─── Preview mode toggle ─────────────────────────────────────────────────────
+
+const modeState = {
+  isCardOnly: false,
+};
+
+const textDragState = {
+  activeLine: null,
+  activeHandle: null,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  baseX: 0,
+  baseY: 0,
+  moved: false,
+};
+
+window.__textDragActive = false;
+
+function stopTextLineDrag() {
+  if (textDragState.activeHandle) {
+    textDragState.activeHandle.classList.remove('is-dragging');
+  }
+  textDragState.activeLine = null;
+  textDragState.activeHandle = null;
+  textDragState.pointerId = null;
+  textDragState.moved = false;
+  window.__textDragActive = false;
+
+  window.removeEventListener('pointermove', onTextLinePointerMove);
+  window.removeEventListener('pointerup', onTextLinePointerUp);
+  window.removeEventListener('pointercancel', onTextLinePointerUp);
+}
+
+function onTextLinePointerMove(e) {
+  if (!textDragState.activeLine) return;
+  if (textDragState.pointerId != null && e.pointerId !== textDragState.pointerId) return;
+
+  const dx = e.clientX - textDragState.startX;
+  const dy = e.clientY - textDragState.startY;
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+    textDragState.moved = true;
+  }
+
+  const typography = ensureTypographyState();
+  typography.lineOffsets[textDragState.activeLine].x = clampTextOffset(textDragState.baseX + dx);
+  typography.lineOffsets[textDragState.activeLine].y = clampTextOffset(textDragState.baseY + dy);
+  applyTypographyState({ syncControls: true });
+  e.preventDefault();
+}
+
+function onTextLinePointerUp(e) {
+  if (!textDragState.activeLine) return;
+  if (textDragState.pointerId != null && e.pointerId !== textDragState.pointerId) return;
+
+  if (textDragState.moved) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  stopTextLineDrag();
+}
+
+function onTextLinePointerDown(e) {
+  if (modeState.isCardOnly) return;
+  if (e.button != null && e.button !== 0) return;
+
+  const handle = e.currentTarget;
+  const lineKey = handle && handle.dataset ? handle.dataset.textLine : null;
+  if (!lineKey || !TEXT_LINE_KEYS.includes(lineKey)) return;
+
+  const typography = ensureTypographyState();
+  const offset = typography.lineOffsets[lineKey] || { x: 0, y: 0 };
+
+  textDragState.activeLine = lineKey;
+  textDragState.activeHandle = handle;
+  textDragState.pointerId = e.pointerId;
+  textDragState.startX = e.clientX;
+  textDragState.startY = e.clientY;
+  textDragState.baseX = Number.isFinite(offset.x) ? offset.x : 0;
+  textDragState.baseY = Number.isFinite(offset.y) ? offset.y : 0;
+  textDragState.moved = false;
+  window.__textDragActive = true;
+
+  if (typeof handle.setPointerCapture === 'function' && e.pointerId != null) {
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch (_) {
+      // Some synthetic pointer events cannot be captured; dragging still works via window listeners.
+    }
+  }
+  handle.classList.add('is-dragging');
+
+  window.addEventListener('pointermove', onTextLinePointerMove);
+  window.addEventListener('pointerup', onTextLinePointerUp);
+  window.addEventListener('pointercancel', onTextLinePointerUp);
+
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function wireTextLineDragging() {
+  const content = getCardContent();
+  if (!content || typeof content.getLineWrapper !== 'function') return;
+
+  for (const lineKey of TEXT_LINE_KEYS) {
+    const handle = content.getLineWrapper(lineKey);
+    if (!handle || handle.dataset.textDragBound === 'true') continue;
+    handle.dataset.textDragBound = 'true';
+    handle.addEventListener('pointerdown', onTextLinePointerDown);
+    handle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  }
+}
+
+let showcaseSweepTimer = null;
+
+function triggerShowcaseSweep() {
+  const previewContainerEl = document.querySelector('.preview-container');
+  if (!previewContainerEl) return;
+  previewContainerEl.classList.remove('showcase-sweep');
+  void previewContainerEl.offsetWidth;
+  previewContainerEl.classList.add('showcase-sweep');
+
+  if (showcaseSweepTimer) {
+    clearTimeout(showcaseSweepTimer);
+  }
+  showcaseSweepTimer = window.setTimeout(() => {
+    previewContainerEl.classList.remove('showcase-sweep');
+    showcaseSweepTimer = null;
+  }, 940);
+}
+
+function setCardOnlyMode(enabled) {
+  const nextMode = !!enabled;
+  if (modeState.isCardOnly === nextMode) return;
+
+  modeState.isCardOnly = nextMode;
+  document.body.classList.toggle('card-only-mode', modeState.isCardOnly);
+  if (stage3D) {
+    stage3D.setCardOnlyMode(modeState.isCardOnly, {
+      delayMs: modeState.isCardOnly ? 120 : 0,
+      durationMs: modeState.isCardOnly ? 860 : 620,
+    });
+  }
+
+  if (modeState.isCardOnly) {
+    stopTextLineDrag();
+    triggerShowcaseSweep();
+  }
+
+  if (modeState.isCardOnly && document.activeElement && typeof document.activeElement.blur === 'function') {
+    document.activeElement.blur();
+  }
+
+  if (showcaseToggleButton) {
+    const label = modeState.isCardOnly ? 'Return to editor' : 'Present card';
+    showcaseToggleButton.setAttribute('aria-label', label);
+    showcaseToggleButton.setAttribute('title', label);
+    showcaseToggleButton.setAttribute('aria-pressed', String(modeState.isCardOnly));
+  }
+}
+
+function toggleCardOnlyMode() {
+  setCardOnlyMode(!modeState.isCardOnly);
+}
+
+function wireCardOnlyModeToggle() {
+  if (!showcaseToggleButton || showcaseToggleButton.dataset.cardOnlyToggleBound === 'true') return;
+
+  showcaseToggleButton.dataset.cardOnlyToggleBound = 'true';
+  showcaseToggleButton.setAttribute('aria-pressed', String(modeState.isCardOnly));
+  showcaseToggleButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleCardOnlyMode();
+  });
+}
+
+wireTextLineDragging();
+wireCardOnlyModeToggle();
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modeState.isCardOnly) {
+    setCardOnlyMode(false);
+  }
 });
 
 // ─── IMAGE upload ─────────────────────────────────────────────────────────────
@@ -1348,7 +5532,10 @@ uploadZone.addEventListener('drop', (e) => {
 });
 
 // Expose destroy globally
-window.destroy = () => card.destroy();
+window.destroy = () => {
+  if (stage3D) stage3D.destroy();
+  card.destroy();
+};
 </script>
 </body>
 </html>

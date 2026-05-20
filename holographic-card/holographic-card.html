@@ -1157,8 +1157,8 @@
         // corner jitter without changing mobile gyro responsiveness.
         const tilt = this._state.mode === 'desktop-mouse' && !this._state.reducedMotion
           ? {
-              x: this._state.currentTilt.x + (targetTilt.x - this._state.currentTilt.x) * 0.28,
-              y: this._state.currentTilt.y + (targetTilt.y - this._state.currentTilt.y) * 0.28,
+              x: this._state.currentTilt.x + (targetTilt.x - this._state.currentTilt.x) * 0.18,
+              y: this._state.currentTilt.y + (targetTilt.y - this._state.currentTilt.y) * 0.18,
             }
           : targetTilt;
 

@@ -1,14 +1,20 @@
 # Journal
 
 ## Current State (2026-05-18)
-- Input modes are split by device class.
-- Mobile uses gyro only, desktop uses mouse hover only.
-- Desktop hover stutter at card corners was reduced by tracking mouse on the non-rotating wrapper and applying light desktop-only tilt smoothing in the rAF loop.
-
-## Files Updated
-- holographic-card/holographic-card.html
-- holographic-card/holographic-card-editor.html
+- File: `holographic-card/holographic-card-editor.html`.
+- Holographic overlay feature has been removed end-to-end:
+  - Deleted `HolographicLayer` class and all runtime lifecycle wiring.
+  - Removed holographic include toggle (`check-holo`).
+  - Removed holographic intensity slider (`slider-holo`).
+  - Removed helper/state/preset bindings (`getHoloEl`, `includes.holo`, `holoOpacity`).
+- Active visual stack now relies on:
+  - Base card lighting (`.card::after` smooth sheen).
+  - Specular layer (`.specular-layer`) with controllable intensity.
+  - Optional realism layer (`RealismLayer`) in `mesh-gradient` or `foil-physical` mode.
+  - Optional grain and sticker detail layers.
+- Text cutout mask remains dynamic and synced to live text + include toggles.
+- Grain remains static (no time animation).
+- Three.js is pinned to `three@0.149.0` with jsDelivr fallback; favicon 404 suppression remains in place.
 
 ## Verification
-- VS Code diagnostics: no errors in updated files.
-- Added standard mask property alongside -webkit-mask in both card files for compatibility.
+- VS Code diagnostics: no errors in `holographic-card/holographic-card-editor.html`.

@@ -1,27 +1,16 @@
 # Journal
 
-## Current State (2026-05-26)
-- Active work: `parallax/gyro-parallax-v7.html`.
-- v7 renders the parallax scene as split Three.js geometry instead of two continuous planes:
-  - `foreground.png` alpha is sampled into a client-side mask.
-  - Full background underlay renders first in normal mode so foreground lift/parallax cannot reveal black holes.
-  - Normal mode uses a full alpha-discard foreground visual mesh for smoother silhouette rendering.
-  - Foreground mesh includes only masked cells.
-  - Foreground depth relief has an `FG Shape` control that blurs/remaps depth and tapers relief near the alpha silhouette.
-  - Background mesh excludes the foreground mask plus the configured gap radius.
-  - Background-fill mesh paints the removed gap ring with `background.png`.
-  - Rim mesh overlays the ring with additive blue/warm edge light.
-- Controls now include `FG Shape`, `Gap`, and `Rim Light`; wireframe mode hides fill/rim helpers and shows the shaped split topology.
-- Mobile CSS keeps the expanded controls panel inside narrow viewports.
-- `gyro-parallax-v6.html` is intentionally untouched.
+## Current State (2026-05-31)
+- `gold/gold-diagonal.html` is a standalone black/gold tape-resist artwork page, isolated from shared/parallax runtime code.
+- The page uses raw WebGL for static diagonal gold-line geometry and metallic lighting; CSS only adds a subtle masked sheen assist.
+- Gold line geometry stays static. Pointer movement now changes reflected light visibly:
+  - Shader includes a pointer-driven `reflectionSweep` that brightens the gold pixels themselves.
+  - CSS overlay is reduced so the hover reads as material reflection, not a flat translucent band.
+  - Pointer handling uses `pointerover` + `pointermove` on the artwork container; pointer leave/out/cancel resets to calm lighting.
+- `<link rel="icon" href="data:,">` prevents browser `/favicon.ico` 404 noise.
 
 ## Verification
-- Module script parse check: passed.
-- Local server: `python3 -m http.server 5503` from `parallax/`.
-- Headless Chrome + SwiftShader WebGL screenshots:
-  - Desktop normal render shows object/background separation with background-filled gap and rim light.
-  - Repro state `FG Depth=0`, `FG Lift=0.6`, `Rim Light=0` shows the exposed cutout covered by `background.png`.
-  - Repro state `FG Depth=0.8`, `FG Lift=0.6`, `FG Shape=0.68`, `Rim Light=0` shows softer foreground shape and less harsh silhouette teeth.
-  - Wireframe render shows no continuous wire lines crossing the cutout.
-  - Mobile-width render shows scene and controls fit onscreen.
-- Console inspection showed no app/shader exceptions; only expected headless SwiftShader/readback warnings and favicon 404.
+- JS syntax check passed via extracted `<script>` and `new Function(...)`.
+- Local HTTP checks returned only `GET /gold/gold-diagonal.html` `200`; no favicon 404.
+- Headless Chrome screenshots captured for idle and active hover states.
+- Chrome DevTools actual mouse input dispatch confirmed hover activation from `--sheen-opacity: 0` to `0.14`, with a visible reflection band in the active render.

@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Gyro Parallax v7 — Three.js</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body, html {
+  margin: 0;
+  overflow: hidden;
+  background: #0c0603;   /* dark, faintly warm — the "off" state */
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ─── Intro backdrop: orange blooms out from the centre over the dark page ─── */
+#bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(120% 80% at 50% 62%, rgba(255,226,172,0.55), rgba(0,0,0,0) 60%),
+    linear-gradient(to bottom, #e2611a 0%, #f4842a 32%, #ffd49a 66%, #ffc07e 100%);
+  /* a soft full-width mask anchored at the bottom, grown upward from nothing → full,
+     so the whole-screen gradient rises elegantly out of black */
+  -webkit-mask: linear-gradient(to top, #000 55%, transparent 100%) 50% 100% / 100% 0% no-repeat;
+          mask: linear-gradient(to top, #000 55%, transparent 100%) 50% 100% / 100% 0% no-repeat;
+}
+/* backdrop animation runs while the intro is playing (replayable) */
+body.intro #bg { animation: bgReveal 2.3s cubic-bezier(0.55, 0, 0.3, 1) forwards; }
+@keyframes bgReveal {
+  from { -webkit-mask-size: 100% 0%;   mask-size: 100% 0%; }
+  to   { -webkit-mask-size: 100% 220%; mask-size: 100% 220%; }
+}
+
+#scene {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  /* figure starts hidden + slightly low/large, then settles in on .revealed */
+  opacity: 0;
+  transform: translateY(24px) scale(1.03);
+  transition: opacity 1.2s ease-out, transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+#scene.revealed {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+canvas { display: block; }
+
+/* ─── Intro light FX overlays (wash over the figure, never block clicks) ─── */
+#fx-bloom, #fx-lightning {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+}
+#fx-bloom {
+  z-index: 2;
+  /* warm overexposed flare, centered near the face */
+  background: radial-gradient(80% 60% at 50% 52%, rgba(255,240,214,0.95), rgba(255,180,90,0.25) 45%, rgba(0,0,0,0) 70%);
+  transform-origin: 50% 52%;
+  transform: scale(0.6);
+}
+#fx-lightning {
+  z-index: 3;
+  /* cool electric flash */
+  background: radial-gradient(120% 90% at 50% 35%, rgba(226,238,255,0.95), rgba(150,185,255,0.35) 40%, rgba(0,0,0,0) 75%);
+}
+#fx-bloom.run     { animation: bloomFlare 1.4s ease-out forwards; }
+#fx-lightning.run { animation: lightningFlick 1.7s steps(1, end) forwards; }
+@keyframes bloomFlare {
+  0%   { opacity: 0;    transform: scale(0.6); }
+  30%  { opacity: 0.9;  transform: scale(1.04); }
+  100% { opacity: 0;    transform: scale(1.18); }
+}
+@keyframes lightningFlick {
+  0%, 100% { opacity: 0; }
+  3%  { opacity: 0.95; }  6%  { opacity: 0.05; }
+  9%  { opacity: 0.7;  } 12% { opacity: 0; }
+  34% { opacity: 0;    } 37% { opacity: 0.9; }
+  40% { opacity: 0.1;  } 43% { opacity: 0.6; } 46% { opacity: 0; }
+  72% { opacity: 0;    } 75% { opacity: 0.85; } 79% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #bg { -webkit-mask-size: 100% 220% !important; mask-size: 100% 220% !important; }
+  body.intro #bg { animation: none; }
+  #scene { transition: none; opacity: 1; transform: none; }
+  #fx-bloom, #fx-lightning { animation: none !important; opacity: 0 !important; }
+}
+
+/* Permission Overlay */
+#permission-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+#permission-overlay.hidden { display: none; }
+#permission-btn {
+  padding: 16px 32px;
+  font-size: 18px;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+  color: #000;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Controls */
+#controls {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 12px;
+  z-index: 100;
+  color: #fff;
+  font-size: 12px;
+  min-width: 250px;
+  overflow: hidden;
+}
+#controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+#controls-header .chevron { transition: transform 0.2s ease; }
+#controls.collapsed #controls-body { display: none; }
+#controls.collapsed #controls-header .chevron { transform: rotate(-90deg); }
+#controls-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+#controls label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  gap: 8px;
+}
+#controls input[type="range"] { width: 100px; flex-shrink: 0; }
+#controls .toggle-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+#controls .val { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; opacity: 0.7; }
+#controls .section-title { margin-top: 12px; font-weight: 600; opacity: 0.5; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+#ctrl-copy {
+  width: 100%;
+  margin-top: 14px;
+  padding: 9px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+#ctrl-copy:active { background: rgba(255,255,255,0.18); }
+#ctrl-introFX {
+  flex: 1;
+  margin-left: 8px;
+  padding: 4px 6px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.4);
+  color: #fff;
+  font-size: 12px;
+}
+#ctrl-replay {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+#ctrl-replay:active { background: rgba(255,255,255,0.18); }
+@media (max-width: 520px) {
+  #controls {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    min-width: 0;
+    max-height: calc(100vh - 24px);
+  }
+  #controls-body {
+    max-height: calc(100vh - 68px);
+    overflow-y: auto;
+  }
+  #controls input[type="range"] { width: min(112px, 32vw); }
+}
+</style>
+</head>
+<body>
+
+<div id="bg"></div>
+<div id="scene"></div>
+<div id="fx-bloom"></div>
+<div id="fx-lightning"></div>
+
+<div id="permission-overlay" class="hidden">
+  <button id="permission-btn">Enable Motion</button>
+</div>
+
+<div id="controls">
+  <div id="controls-header">
+    <span>Controls</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div id="controls-body">
+    <div class="section-title">Camera</div>
+    <label>Orbit X <input type="range" id="ctrl-orbitX" min="0" max="30" step="1" value="5"><span class="val" id="val-orbitX">5</span></label>
+    <label>Orbit Y <input type="range" id="ctrl-orbitY" min="0" max="25" step="1" value="5"><span class="val" id="val-orbitY">5</span></label>
+    <label>FOV <input type="range" id="ctrl-fov" min="20" max="80" step="1" value="40"><span class="val" id="val-fov">40</span></label>
+    <label>Distance <input type="range" id="ctrl-dist" min="1.5" max="5" step="0.1" value="3.2"><span class="val" id="val-dist">3.2</span></label>
+
+    <div class="section-title">Position</div>
+    <label>Offset X <input type="range" id="ctrl-offsetX" min="-1.5" max="1.5" step="0.01" value="0"><span class="val" id="val-offsetX">0</span></label>
+    <label>Offset Y <input type="range" id="ctrl-offsetY" min="-1.5" max="1.5" step="0.01" value="-0.26"><span class="val" id="val-offsetY">-0.26</span></label>
+
+    <div class="section-title">Parallax Pivot</div>
+    <label>Pivot Depth <input type="range" id="ctrl-pivot" min="0" max="1" step="0.01" value="1"><span class="val" id="val-pivot">1</span></label>
+
+    <div class="section-title">Foreground</div>
+    <label>FG Depth <input type="range" id="ctrl-fgDepth" min="0" max="0.8" step="0.01" value="0.08"><span class="val" id="val-fgDepth">0.08</span></label>
+    <label>FG Lift <input type="range" id="ctrl-fgLift" min="0" max="0.6" step="0.01" value="0"><span class="val" id="val-fgLift">0</span></label>
+    <label>FG Shape <input type="range" id="ctrl-fgShape" min="0" max="1" step="0.01" value="0.8"><span class="val" id="val-fgShape">0.8</span></label>
+
+    <div class="section-title">Hand (from depth)</div>
+    <label>Threshold <input type="range" id="ctrl-handThresh" min="0.8" max="1" step="0.005" value="0.855"><span class="val" id="val-handThresh">0.855</span></label>
+    <label>Hand Depth <input type="range" id="ctrl-handDepth" min="0" max="0.6" step="0.01" value="0.4"><span class="val" id="val-handDepth">0.4</span></label>
+    <label>Hand Lift <input type="range" id="ctrl-handLift" min="0" max="0.5" step="0.01" value="0.1"><span class="val" id="val-handLift">0.1</span></label>
+
+    <div class="section-title">Separation</div>
+    <label>Gap <input type="range" id="ctrl-gap" min="0" max="14" step="1" value="0"><span class="val" id="val-gap">0</span></label>
+    <label>Rim Light <input type="range" id="ctrl-rim" min="0" max="1.5" step="0.05" value="0.6"><span class="val" id="val-rim">0.6</span></label>
+
+    <div class="section-title">Feel</div>
+    <label>Smoothing <input type="range" id="ctrl-smooth" min="0.02" max="0.2" step="0.01" value="0.06"><span class="val" id="val-smooth">0.06</span></label>
+
+    <div class="section-title">Intro</div>
+    <label>Light FX
+      <select id="ctrl-introFX">
+        <option value="none">None</option>
+        <option value="bloom">Warm bloom flare</option>
+        <option value="rim" selected>Rim-light sweep</option>
+        <option value="sheen">Light sweep / sheen</option>
+        <option value="lightning">Lightning flicker</option>
+      </select>
+    </label>
+    <button id="ctrl-replay">▸ Replay intro</button>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="ctrl-cover">
+      <label for="ctrl-cover" style="margin:0">Fill screen (cover)</label>
+    </div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="ctrl-handDebug">
+      <label for="ctrl-handDebug" style="margin:0">Show hand mask</label>
+    </div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="ctrl-wireframe">
+      <label for="ctrl-wireframe" style="margin:0">Wireframe</label>
+    </div>
+
+    <button id="ctrl-copy">Copy values</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ─── Config ───
+const config = {
+  orbitX: 5,
+  orbitY: 5,
+  fov: 40,
+  dist: 3.2,
+  offsetX: 0,        // shift whole composition horizontally (world units)
+  offsetY: -0.26,    // shift whole composition vertically (negative = down)
+  pivot: 1,         // parallax pivot point: depth at this value stays locked
+  bgDepth: 0.35,    // (no slider) feeds the rim-light depth scale only
+  fgDepth: 0.08,
+  fgLift: 0,
+  fgShape: 0.8,
+  gapSize: 0,
+  rimLight: 0.6,
+  smoothing: 0.06,
+  wireframe: false,
+  cover: false,       // scale plane to fill viewport (crops edges) vs. fit
+  handThresh: 0.855,  // depth above this (within the subject) counts as "hand"
+  handDepth: 0.4,     // extra parallax depth applied to the hand
+  handLift: 0.1,      // extra forward push applied to the hand
+  handDebug: false,   // tint the detected hand cyan to tune the threshold
+  introFX: 'rim'      // intro light effect: none | bloom | rim | sheen | lightning
+};
+
+// Plane dimensions (set in buildMeshes) used for cover scaling
+let planeWidth = 0, planeHeight = 0;
+
+// Intro in-shader light sweep state (rim / sheen). t0 may be in the future.
+const introFx = { active: false, mode: 0, t0: 0, dur: 1500 };
+
+// ─── Scene Setup ───
+const container = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000000, 0); // transparent → CSS gradient shows through
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = null;
+
+// All parallax meshes live in this group so we can scale them together (cover mode)
+const meshGroup = new THREE.Group();
+scene.add(meshGroup);
+
+const camera = new THREE.PerspectiveCamera(config.fov, window.innerWidth / window.innerHeight, 0.01, 100);
+camera.position.set(0, 0, config.dist);
+
+// ─── Texture Loader ───
+const loader = new THREE.TextureLoader();
+let depthTexture, fgTexture, handTexture = null;
+let handMaskLoaded = false;   // true once hand.png loads → use mask instead of depth threshold
+let fgVisualMesh, fgMesh, rimMesh;
+let splitMaskState = null;
+let ready = false;
+
+const texPromises = [
+  new Promise(res => { depthTexture = loader.load('depth.png', res); }),
+  new Promise(res => { fgTexture = loader.load('foreground.png', res); }),
+  // Optional: hand mask (hand opaque, rest transparent). Resolves either way.
+  new Promise(res => {
+    loader.load('hand.png',
+      tex => { handTexture = tex; handMaskLoaded = true; res(); },
+      undefined,
+      () => res()   // missing → fall back to depth threshold
+    );
+  }),
+];
+
+Promise.all(texPromises).then(() => {
+  [depthTexture, fgTexture, handTexture].forEach(t => {
+    if (!t) return;
+    t.colorSpace = THREE.LinearSRGBColorSpace;
+    t.minFilter = THREE.LinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  });
+  buildMeshes();
+  ready = true;
+  initSensors();
+  loop();
+
+  // Intro: reveal the figure only after it's actually been drawn (no blank flash),
+  // with a short beat so the glow bloom leads the entrance.
+  requestAnimationFrame(() => requestAnimationFrame(() => revealFigure(config.introFX)));
+});
+
+// ─── Custom Displacement Shader ───
+function makeDisplacementMaterial(colorTex, depthTex, isForeground) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColorTex: { value: colorTex },
+      uDepthTex: { value: depthTex },
+      uDepthScale: { value: isForeground ? config.fgDepth : config.bgDepth },
+      uPivot: { value: config.pivot },
+      uLift: { value: isForeground ? config.fgLift : 0.0 },
+      uShapeAmount: { value: isForeground ? config.fgShape : 0.0 },
+      uDepthTexel: { value: new THREE.Vector2(
+        1 / depthTexture.image.naturalWidth,
+        1 / depthTexture.image.naturalHeight
+      ) },
+      uWireframe: { value: 0 },
+      uIsForeground: { value: isForeground ? 1.0 : 0.0 },
+      uHandThresh: { value: config.handThresh },
+      uHandDepth: { value: config.handDepth },
+      uHandLift: { value: config.handLift },
+      uHandDebug: { value: 0 },
+      uHandTex: { value: handTexture || depthTex },  // placeholder when no mask (unused)
+      uHandMode: { value: handMaskLoaded ? 1.0 : 0.0 }, // 1 = mask, 0 = depth threshold
+      uFxMode: { value: 0 },   // intro light: 0 none, 1 rim sweep, 2 sheen
+      uFxT: { value: 0 },      // sweep progress 0→1
+      uFxAmt: { value: 0 },    // intensity envelope 0→1→0
+    },
+    vertexShader: `
+      attribute float aShape;
+
+      uniform sampler2D uColorTex;
+      uniform sampler2D uDepthTex;
+      uniform float uDepthScale;
+      uniform float uPivot;
+      uniform float uLift;
+      uniform float uShapeAmount;
+      uniform vec2 uDepthTexel;
+      uniform float uIsForeground;
+      uniform float uHandThresh;
+      uniform float uHandDepth;
+      uniform float uHandLift;
+      uniform sampler2D uHandTex;
+      uniform float uHandMode;
+
+      varying vec2 vUv;
+      varying float vDepth;
+      varying float vHand;
+      varying float vShape;
+
+      float readDepth(vec2 coord) {
+        return texture2D(uDepthTex, clamp(coord, vec2(0.0), vec2(1.0))).r;
+      }
+
+      void main() {
+        vUv = uv;
+        vShape = aShape;
+        float centerDepth = readDepth(uv);
+        vec2 blur = uDepthTexel * mix(1.0, 18.0, uShapeAmount);
+        float blurredDepth =
+          centerDepth * 0.4 +
+          readDepth(uv + vec2( blur.x, 0.0)) * 0.15 +
+          readDepth(uv + vec2(-blur.x, 0.0)) * 0.15 +
+          readDepth(uv + vec2(0.0,  blur.y)) * 0.15 +
+          readDepth(uv + vec2(0.0, -blur.y)) * 0.15;
+
+        float depth = mix(centerDepth, blurredDepth, uShapeAmount);
+        depth = mix(depth, smoothstep(0.08, 0.96, depth), uShapeAmount * 0.35);
+        vDepth = depth;
+
+        // Hand layer: extra push for the hand.
+        // Mask mode (uHandMode=1) uses hand.png's alpha — clean isolation.
+        // Fallback (no mask) thresholds the depth map inside the subject silhouette.
+        // uIsForeground gates this off for background meshes.
+        float handFactor;
+        if (uHandMode > 0.5) {
+          handFactor = uIsForeground * smoothstep(0.15, 0.6, texture2D(uHandTex, uv).a);
+        } else {
+          float subject = texture2D(uColorTex, uv).a;
+          handFactor = uIsForeground * subject *
+            smoothstep(uHandThresh - 0.05, uHandThresh + 0.05, depth);
+        }
+        vHand = handFactor;
+
+        // Parallax pivot: vertices at pivot depth stay at Z=0 (locked)
+        // Behind pivot (depth < pivot) → pushed back (negative Z)
+        // In front of pivot (depth > pivot) → pushed forward (positive Z)
+        // This creates the real-camera parallax rotation effect
+        float edgeFalloff = mix(1.0, smoothstep(0.0, 1.0, aShape), uShapeAmount);
+        float displacement =
+          (depth - uPivot) * (uDepthScale + handFactor * uHandDepth) * edgeFalloff
+          + uLift + handFactor * uHandLift;
+
+        vec3 newPos = position + normal * displacement;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uColorTex;
+      uniform int uWireframe;
+      uniform int uHandDebug;
+      uniform float uFxMode;
+      uniform float uFxT;
+      uniform float uFxAmt;
+      varying vec2 vUv;
+      varying float vDepth;
+      varying float vHand;
+      varying float vShape;
+
+      void main() {
+        if (uWireframe == 1) {
+          // Depth-based wireframe: bright on raised surfaces, dark in recesses
+          float brightness = vDepth * 0.85 + 0.15;
+          gl_FragColor = vec4(brightness * 0.4, brightness * 0.95, brightness * 0.6, 1.0);
+          return;
+        }
+        vec4 color = texture2D(uColorTex, vUv);
+        if (color.a < 0.02) discard;
+        if (uHandDebug == 1) {
+          color.rgb = mix(color.rgb, vec3(0.1, 1.0, 0.9), clamp(vHand, 0.0, 1.0) * 0.85);
+        }
+
+        // Intro lighting played across the figure (rim sweep / sheen)
+        if (uFxMode > 0.5 && uFxAmt > 0.001) {
+          if (uFxMode < 1.5) {
+            // Rim sweep + colour wipe: a band descends top→bottom. Everything the
+            // band has already passed (above it) is at full colour; ahead is dark.
+            // The bright rim rides the leading edge along the silhouette.
+            float center = mix(1.2, -0.2, uFxT);
+            float reveal = smoothstep(center - 0.06, center + 0.06, vUv.y);
+            color.rgb *= mix(0.1, 1.0, reveal);   // start dark, fill to full colour
+            float rim = smoothstep(0.5, 0.0, vShape);
+            float band = smoothstep(0.34, 0.0, abs(vUv.y - center));
+            color.rgb += vec3(1.0, 0.95, 0.82) * rim * band * uFxAmt * 3.0;
+          } else {
+            // Light sheen: a soft diagonal highlight sweeping left→right.
+            float diag = vUv.x * 0.72 + (1.0 - vUv.y) * 0.28;
+            float center = mix(-0.15, 1.15, uFxT);
+            float band = smoothstep(0.16, 0.0, abs(diag - center));
+            color.rgb += vec3(1.0, 0.96, 0.88) * band * uFxAmt * 0.85;
+          }
+        }
+        gl_FragColor = color;
+      }
+    `,
+    transparent: isForeground,
+    depthWrite: true,
+    depthTest: true,
+    side: THREE.FrontSide,
+    wireframe: config.wireframe,
+  });
+}
+
+function makeRimMaterial(depthTex) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uDepthTex: { value: depthTex },
+      uDepthScale: { value: (config.bgDepth + config.fgDepth) * 0.5 },
+      uPivot: { value: config.pivot },
+      uLift: { value: config.fgLift * 0.45 },
+      uOpacity: { value: config.rimLight },
+    },
+    vertexShader: `
+      attribute float aRim;
+
+      uniform sampler2D uDepthTex;
+      uniform float uDepthScale;
+      uniform float uPivot;
+      uniform float uLift;
+
+      varying vec2 vUv;
+      varying float vDepth;
+      varying float vRim;
+
+      void main() {
+        vUv = uv;
+        vRim = aRim;
+
+        float depth = texture2D(uDepthTex, uv).r;
+        vDepth = depth;
+
+        float displacement = (depth - uPivot) * uDepthScale + uLift;
+        vec3 newPos = position + normal * displacement;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uOpacity;
+
+      varying float vDepth;
+      varying float vRim;
+
+      void main() {
+        float alpha = smoothstep(0.0, 1.0, vRim) * uOpacity;
+        vec3 cool = vec3(0.38, 0.60, 1.0);
+        vec3 warm = vec3(1.0, 0.92, 0.72);
+        vec3 color = mix(cool, warm, smoothstep(0.4, 1.0, vDepth));
+        gl_FragColor = vec4(color * alpha * 1.8, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.FrontSide,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
+// ─── Build Meshes ───
+function buildMeshes() {
+  // Compute aspect ratio to match image proportions
+  const imgAspect = depthTexture.image.naturalWidth / depthTexture.image.naturalHeight;
+
+  const segments = 240;
+  const width = imgAspect * 2;
+  const height = 2;
+  planeWidth = width;
+  planeHeight = height;
+
+  splitMaskState = {
+    segments,
+    width,
+    height,
+    foregroundMask: makeForegroundMask(fgTexture.image, segments),
+  };
+  splitMaskState.foregroundShape = makeInnerShapeMap(splitMaskState.foregroundMask, segments, 18);
+
+  rebuildSplitMeshes();
+}
+
+function rebuildSplitMeshes() {
+  if (!splitMaskState) return;
+
+  const { segments, width, height, foregroundMask, foregroundShape } = splitMaskState;
+  const gapCells = Math.max(0, Math.round(config.gapSize));
+  const ringDistance = makeRingDistance(foregroundMask, segments, gapCells);
+  const fgShapeForVertex = makeVertexShapeSampler(foregroundShape, segments);
+
+  replaceMesh(fgVisualMesh, mesh => { fgVisualMesh = mesh; });
+  replaceMesh(fgMesh, mesh => { fgMesh = mesh; });
+  replaceMesh(rimMesh, mesh => { rimMesh = mesh; });
+
+  const fgVisualGeo = makeMaskedGridGeometry(width, height, segments, () => true, fgShapeForVertex);
+  const fgVisualMat = makeDisplacementMaterial(fgTexture, depthTexture, true);
+  fgVisualMesh = new THREE.Mesh(fgVisualGeo, fgVisualMat);
+  fgVisualMesh.position.z = 0;
+  fgVisualMesh.renderOrder = 2;
+  fgVisualMesh.visible = !config.wireframe;
+  meshGroup.add(fgVisualMesh);
+
+  const fgGeo = makeMaskedGridGeometry(
+    width,
+    height,
+    segments,
+    cellIndex => foregroundMask[cellIndex],
+    fgShapeForVertex
+  );
+  const fgMat = makeDisplacementMaterial(fgTexture, depthTexture, true);
+  fgMesh = new THREE.Mesh(fgGeo, fgMat);
+  fgMesh.position.z = 0;
+  fgMesh.renderOrder = 2;
+  fgMesh.visible = config.wireframe;
+  meshGroup.add(fgMesh);
+
+  const rimGeo = makeRimGeometry(width, height, segments, ringDistance, gapCells);
+  const rimMat = makeRimMaterial(depthTexture);
+  rimMesh = new THREE.Mesh(rimGeo, rimMat);
+  rimMesh.position.z = 0;
+  rimMesh.renderOrder = 3;
+  meshGroup.add(rimMesh);
+
+  needsRedraw = true;
+}
+
+function replaceMesh(mesh, setRef) {
+  if (mesh) {
+    meshGroup.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+  setRef(null);
+}
+
+function makeForegroundMask(image, segments) {
+  const canvas = document.createElement('canvas');
+  canvas.width = segments;
+  canvas.height = segments;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.clearRect(0, 0, segments, segments);
+  ctx.drawImage(image, 0, 0, segments, segments);
+
+  const pixels = ctx.getImageData(0, 0, segments, segments).data;
+  const mask = new Uint8Array(segments * segments);
+
+  for (let i = 0; i < mask.length; i++) {
+    mask[i] = pixels[i * 4 + 3] > 16 ? 1 : 0;
+  }
+
+  return mask;
+}
+
+function makeRingDistance(mask, segments, radius) {
+  const far = 255;
+  const distances = new Uint8Array(segments * segments);
+  distances.fill(far);
+
+  if (radius <= 0) return distances;
+
+  for (let y = 0; y < segments; y++) {
+    for (let x = 0; x < segments; x++) {
+      const sourceIndex = y * segments + x;
+      if (!mask[sourceIndex]) continue;
+
+      const yMin = Math.max(0, y - radius);
+      const yMax = Math.min(segments - 1, y + radius);
+      const xMin = Math.max(0, x - radius);
+      const xMax = Math.min(segments - 1, x + radius);
+
+      for (let yy = yMin; yy <= yMax; yy++) {
+        for (let xx = xMin; xx <= xMax; xx++) {
+          const targetIndex = yy * segments + xx;
+          if (mask[targetIndex]) continue;
+
+          const distance = Math.ceil(Math.hypot(xx - x, yy - y));
+          if (distance > 0 && distance <= radius && distance < distances[targetIndex]) {
+            distances[targetIndex] = distance;
+          }
+        }
+      }
+    }
+  }
+
+  return distances;
+}
+
+function makeInnerShapeMap(mask, segments, radius) {
+  const shape = new Float32Array(segments * segments);
+
+  for (let y = 0; y < segments; y++) {
+    for (let x = 0; x < segments; x++) {
+      const sourceIndex = y * segments + x;
+      if (!mask[sourceIndex]) continue;
+
+      let nearestOutside = radius + 1;
+      const yMin = Math.max(0, y - radius);
+      const yMax = Math.min(segments - 1, y + radius);
+      const xMin = Math.max(0, x - radius);
+      const xMax = Math.min(segments - 1, x + radius);
+
+      for (let yy = yMin; yy <= yMax; yy++) {
+        for (let xx = xMin; xx <= xMax; xx++) {
+          const targetIndex = yy * segments + xx;
+          if (mask[targetIndex]) continue;
+
+          nearestOutside = Math.min(nearestOutside, Math.hypot(xx - x, yy - y));
+        }
+      }
+
+      shape[sourceIndex] = Math.min(1, nearestOutside / radius);
+    }
+  }
+
+  return shape;
+}
+
+function makeVertexShapeSampler(shapeMap, segments) {
+  return (x, y) => {
+    let total = 0;
+    let count = 0;
+
+    for (let yy = y - 1; yy <= y; yy++) {
+      for (let xx = x - 1; xx <= x; xx++) {
+        if (xx < 0 || yy < 0 || xx >= segments || yy >= segments) continue;
+        total += shapeMap[yy * segments + xx];
+        count++;
+      }
+    }
+
+    return count ? total / count : 0;
+  };
+}
+
+function makeMaskedGridGeometry(width, height, segments, includeCell, shapeForVertex = () => 1) {
+  const vertexCount = (segments + 1) * (segments + 1);
+  const positions = new Float32Array(vertexCount * 3);
+  const normals = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const shapes = new Float32Array(vertexCount);
+  const indices = [];
+
+  for (let y = 0; y <= segments; y++) {
+    for (let x = 0; x <= segments; x++) {
+      const vertexIndex = y * (segments + 1) + x;
+      const u = x / segments;
+      const v = 1 - y / segments;
+
+      positions[vertexIndex * 3] = u * width - width * 0.5;
+      positions[vertexIndex * 3 + 1] = v * height - height * 0.5;
+      positions[vertexIndex * 3 + 2] = 0;
+      normals[vertexIndex * 3 + 2] = 1;
+      uvs[vertexIndex * 2] = u;
+      uvs[vertexIndex * 2 + 1] = v;
+      shapes[vertexIndex] = shapeForVertex(x, y);
+    }
+  }
+
+  for (let y = 0; y < segments; y++) {
+    for (let x = 0; x < segments; x++) {
+      const cellIndex = y * segments + x;
+      if (!includeCell(cellIndex, x, y)) continue;
+
+      const topLeft = y * (segments + 1) + x;
+      const topRight = topLeft + 1;
+      const bottomLeft = (y + 1) * (segments + 1) + x;
+      const bottomRight = bottomLeft + 1;
+
+      indices.push(topLeft, bottomLeft, topRight);
+      indices.push(bottomLeft, bottomRight, topRight);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('aShape', new THREE.BufferAttribute(shapes, 1));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+function makeRimGeometry(width, height, segments, ringDistance, gapCells) {
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const rim = [];
+  const indices = [];
+  let vertexIndex = 0;
+
+  if (gapCells <= 0) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(), 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(), 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(), 2));
+    geometry.setAttribute('aRim', new THREE.BufferAttribute(new Float32Array(), 1));
+    return geometry;
+  }
+
+  for (let y = 0; y < segments; y++) {
+    for (let x = 0; x < segments; x++) {
+      const cellIndex = y * segments + x;
+      const distance = ringDistance[cellIndex];
+      if (distance === 255 || distance > gapCells) continue;
+
+      const u0 = x / segments;
+      const u1 = (x + 1) / segments;
+      const v0 = 1 - y / segments;
+      const v1 = 1 - (y + 1) / segments;
+      const x0 = u0 * width - width * 0.5;
+      const x1 = u1 * width - width * 0.5;
+      const y0 = v0 * height - height * 0.5;
+      const y1 = v1 * height - height * 0.5;
+      const strength = 1 - (distance - 1) / Math.max(1, gapCells);
+
+      positions.push(x0, y0, 0, x0, y1, 0, x1, y0, 0, x1, y1, 0);
+      normals.push(0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1);
+      uvs.push(u0, v0, u0, v1, u1, v0, u1, v1);
+      rim.push(strength, strength, strength, strength);
+      indices.push(vertexIndex, vertexIndex + 1, vertexIndex + 2);
+      indices.push(vertexIndex + 1, vertexIndex + 3, vertexIndex + 2);
+      vertexIndex += 4;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('aRim', new THREE.Float32BufferAttribute(rim, 1));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+// ─── Sensors ───
+const current = { x: 0, y: 0 };
+const target  = { x: 0, y: 0 };
+let neutralBeta = null;
+let gyroActive = false;
+
+function initSensors() {
+  const overlay = document.getElementById('permission-overlay');
+  const btn = document.getElementById('permission-btn');
+
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    overlay.classList.remove('hidden');
+    btn.onclick = () => {
+      DeviceOrientationEvent.requestPermission().then(state => {
+        if (state === 'granted') {
+          overlay.classList.add('hidden');
+          startGyro();
+        }
+      });
+    };
+  } else {
+    overlay.classList.add('hidden');
+    startGyro();
+  }
+
+  setTimeout(() => {
+    if (!gyroActive) {
+      window.addEventListener('mousemove', e => {
+        target.x = (e.clientX / window.innerWidth  - 0.5) * 2;
+        target.y = (e.clientY / window.innerHeight - 0.5) * 2;
+      });
+    }
+  }, 50);
+}
+
+function startGyro() {
+  window.addEventListener('deviceorientation', (e) => {
+    if (!e.gamma && !e.beta) return;
+    if (neutralBeta === null) neutralBeta = e.beta;
+    gyroActive = true;
+    target.x = Math.max(-1, Math.min(1, -e.gamma / 40));
+    target.y = Math.max(-1, Math.min(1, -(e.beta - neutralBeta) / 40));
+  });
+}
+
+// ─── Render Loop ───
+let needsRedraw = true;
+
+function loop() {
+  requestAnimationFrame(loop);
+
+  current.x += (target.x - current.x) * config.smoothing;
+  current.y += (target.y - current.y) * config.smoothing;
+
+  // Drive the intro light sweep (rim / sheen) — keep rendering while it plays.
+  let fxMode = 0, fxT = 0, fxAmt = 0;
+  if (introFx.active) {
+    const t = (performance.now() - introFx.t0) / introFx.dur;
+    if (t >= 1) {
+      introFx.active = false;   // one more frame below clears the uniforms
+    } else {
+      fxMode = introFx.mode;
+      fxT = Math.max(0, t);
+      fxAmt = Math.sin(fxT * Math.PI);
+    }
+    needsRedraw = true;
+  }
+
+  if (Math.abs(target.x - current.x) < 0.0003 &&
+      Math.abs(target.y - current.y) < 0.0003 &&
+      !needsRedraw) return;
+  needsRedraw = false;
+
+  // Camera orbit
+  const orbitH = current.x * config.orbitX * Math.PI / 180;
+  const orbitV = current.y * config.orbitY * Math.PI / 180;
+
+  camera.position.x = Math.sin(orbitH) * config.dist;
+  camera.position.y = -Math.sin(orbitV) * config.dist;
+  camera.position.z = Math.cos(orbitH) * Math.cos(orbitV) * config.dist;
+  camera.lookAt(0, 0, 0);
+  camera.fov = config.fov;
+  camera.updateProjectionMatrix();
+
+  // Cover scaling: blow up the plane so it always fills the viewport (edges crop)
+  if (planeWidth > 0) {
+    if (config.cover) {
+      const visibleH = 2 * config.dist * Math.tan(config.fov * Math.PI / 360);
+      const visibleW = visibleH * camera.aspect;
+      const s = Math.max(visibleW / planeWidth, visibleH / planeHeight) * 1.04;
+      meshGroup.scale.setScalar(s);
+    } else {
+      meshGroup.scale.setScalar(1);
+    }
+  }
+  meshGroup.position.set(config.offsetX, config.offsetY, 0);
+
+  // Update uniforms
+  if (fgMesh) {
+    fgMesh.material.uniforms.uDepthScale.value = config.fgDepth;
+    fgMesh.material.uniforms.uPivot.value = config.pivot;
+    fgMesh.material.uniforms.uLift.value = config.fgLift;
+    fgMesh.material.uniforms.uShapeAmount.value = config.fgShape;
+    fgMesh.material.wireframe = config.wireframe;
+    fgMesh.material.uniforms.uWireframe.value = config.wireframe ? 1 : 0;
+    fgMesh.material.uniforms.uHandThresh.value = config.handThresh;
+    fgMesh.material.uniforms.uHandDepth.value = config.handDepth;
+    fgMesh.material.uniforms.uHandLift.value = config.handLift;
+    fgMesh.material.uniforms.uHandDebug.value = config.handDebug ? 1 : 0;
+    fgMesh.visible = config.wireframe;
+  }
+  if (fgVisualMesh) {
+    fgVisualMesh.material.uniforms.uDepthScale.value = config.fgDepth;
+    fgVisualMesh.material.uniforms.uPivot.value = config.pivot;
+    fgVisualMesh.material.uniforms.uLift.value = config.fgLift;
+    fgVisualMesh.material.uniforms.uShapeAmount.value = config.fgShape;
+    fgVisualMesh.material.uniforms.uHandThresh.value = config.handThresh;
+    fgVisualMesh.material.uniforms.uHandDepth.value = config.handDepth;
+    fgVisualMesh.material.uniforms.uHandLift.value = config.handLift;
+    fgVisualMesh.material.uniforms.uHandDebug.value = config.handDebug ? 1 : 0;
+    fgVisualMesh.material.wireframe = false;
+    fgVisualMesh.material.uniforms.uWireframe.value = 0;
+    fgVisualMesh.material.uniforms.uFxMode.value = fxMode;
+    fgVisualMesh.material.uniforms.uFxT.value = fxT;
+    fgVisualMesh.material.uniforms.uFxAmt.value = fxAmt;
+    fgVisualMesh.visible = !config.wireframe;
+  }
+  if (rimMesh) {
+    rimMesh.material.uniforms.uDepthScale.value = (config.bgDepth + config.fgDepth) * 0.5;
+    rimMesh.material.uniforms.uPivot.value = config.pivot;
+    rimMesh.material.uniforms.uLift.value = config.fgLift * 0.45;
+    rimMesh.material.uniforms.uOpacity.value = config.rimLight;
+    rimMesh.visible = !config.wireframe && config.rimLight > 0 && config.gapSize > 0;
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ─── Resize ───
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  needsRedraw = true;
+});
+
+// ─── Controls ───
+function bindSlider(id, valId, prop, onChange) {
+  const slider = document.getElementById(id);
+  const valSpan = document.getElementById(valId);
+  slider.addEventListener('input', () => {
+    config[prop] = parseFloat(slider.value);
+    valSpan.textContent = slider.value;
+    if (onChange) onChange();
+    needsRedraw = true;
+  });
+}
+
+bindSlider('ctrl-orbitX',  'val-orbitX',  'orbitX');
+bindSlider('ctrl-orbitY',  'val-orbitY',  'orbitY');
+bindSlider('ctrl-fov',     'val-fov',     'fov');
+bindSlider('ctrl-dist',    'val-dist',    'dist');
+bindSlider('ctrl-offsetX', 'val-offsetX', 'offsetX');
+bindSlider('ctrl-offsetY', 'val-offsetY', 'offsetY');
+bindSlider('ctrl-pivot',   'val-pivot',   'pivot');
+bindSlider('ctrl-fgDepth', 'val-fgDepth', 'fgDepth');
+bindSlider('ctrl-fgLift',  'val-fgLift',  'fgLift');
+bindSlider('ctrl-fgShape', 'val-fgShape', 'fgShape');
+bindSlider('ctrl-handThresh', 'val-handThresh', 'handThresh');
+bindSlider('ctrl-handDepth',  'val-handDepth',  'handDepth');
+bindSlider('ctrl-handLift',   'val-handLift',   'handLift');
+bindSlider('ctrl-gap',     'val-gap',     'gapSize', rebuildSplitMeshes);
+bindSlider('ctrl-rim',     'val-rim',     'rimLight');
+bindSlider('ctrl-smooth',  'val-smooth',  'smoothing');
+
+document.getElementById('ctrl-cover').addEventListener('change', (e) => {
+  config.cover = e.target.checked;
+  needsRedraw = true;
+});
+
+document.getElementById('ctrl-handDebug').addEventListener('change', (e) => {
+  config.handDebug = e.target.checked;
+  needsRedraw = true;
+});
+
+document.getElementById('ctrl-wireframe').addEventListener('change', (e) => {
+  config.wireframe = e.target.checked;
+  needsRedraw = true;
+});
+
+document.getElementById('controls-header').addEventListener('click', () => {
+  document.getElementById('controls').classList.toggle('collapsed');
+});
+
+document.getElementById('ctrl-copy').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const keys = ['orbitX','orbitY','fov','dist','offsetX','offsetY','pivot',
+    'fgDepth','fgLift','fgShape','handThresh','handDepth','handLift',
+    'gapSize','rimLight','smoothing'];
+  const text = keys.map(k => `${k}: ${config[k]}`).join('\n');
+  const btn = e.currentTarget;
+  const done = () => { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy values', 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => prompt('Copy these values:', text));
+  } else {
+    prompt('Copy these values:', text);
+  }
+});
+
+document.getElementById('ctrl-introFX').addEventListener('change', (e) => {
+  config.introFX = e.target.value;
+});
+
+document.getElementById('ctrl-replay').addEventListener('click', (e) => {
+  e.stopPropagation();
+  playIntro();
+});
+
+// ─── Intro orchestration ───
+// startBackdrop runs the black→glow bloom (no meshes needed, fires during load).
+// revealFigure fades the figure in and layers on the chosen light effect.
+function startBackdrop() {
+  document.body.classList.add('intro');
+  if (config.introFX === 'lightning') runOverlay('fx-lightning');
+}
+
+function revealFigure(mode) {
+  document.getElementById('scene').classList.add('revealed');
+  if (mode === 'bloom') {
+    setTimeout(() => runOverlay('fx-bloom'), 500);
+  } else if (mode === 'rim' || mode === 'sheen') {
+    introFx.mode = mode === 'rim' ? 1 : 2;
+    // Rim doubles as a colour wipe, so start it with the figure (dark from frame one);
+    // sheen is a later accent, so give it a beat.
+    introFx.dur = mode === 'rim' ? 1700 : 1500;
+    introFx.t0 = performance.now() + (mode === 'rim' ? 0 : 550);
+    introFx.active = true;
+    needsRedraw = true;
+  }
+}
+
+// Re-trigger a one-shot CSS overlay animation (remove → reflow → add).
+function runOverlay(id) {
+  const el = document.getElementById(id);
+  el.classList.remove('run');
+  void el.offsetWidth;
+  el.classList.add('run');
+}
+
+// Full replay from the controls: reset everything, then play again.
+function playIntro() {
+  const scene = document.getElementById('scene');
+  // reset the figure instantly (skip the reverse transition)
+  scene.style.transition = 'none';
+  scene.classList.remove('revealed');
+  // clear any in-shader sweep
+  introFx.active = false;
+  if (fgVisualMesh) {
+    fgVisualMesh.material.uniforms.uFxMode.value = 0;
+    fgVisualMesh.material.uniforms.uFxAmt.value = 0;
+  }
+  needsRedraw = true;
+  // reset overlays + backdrop
+  ['fx-bloom', 'fx-lightning'].forEach(id => document.getElementById(id).classList.remove('run'));
+  document.body.classList.remove('intro');
+  void document.body.offsetWidth;   // flush the resets
+  scene.style.transition = '';      // restore the reveal transition
+  // play
+  startBackdrop();
+  setTimeout(() => revealFigure(config.introFX), 600);
+}
+
+// Kick off the backdrop glow immediately so it plays during texture load.
+startBackdrop();
+</script>
+</body>
+</html>

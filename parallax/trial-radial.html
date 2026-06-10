@@ -45,7 +45,7 @@ body, html {
     50% 100% / 200% 200% no-repeat;
 }
 /* backdrop animation runs while the intro is playing (replayable) */
-body.intro #bg { animation: bgReveal 2.6s cubic-bezier(0.85, 0, 0.15, 1) forwards; }
+body.intro #bg { animation: bgReveal 2.5s cubic-bezier(0.5, 0, 0.15, 1) forwards; }
 @keyframes bgReveal {
   from { --dome-r0: 0%;  --dome-r1: 0%;  --dome-r2: 0%;  --dome-r3: 0%; }
   to   { --dome-r0: 65%; --dome-r1: 80%; --dome-r2: 93%; --dome-r3: 100%; }
@@ -344,13 +344,28 @@ const config = {
   introFX: 'rim'      // intro light effect: none | bloom | rim | sheen | lightning
 };
 
+// On phones and portrait tablets the figure needs to sit lower and further back,
+// so override the tuned desktop values above with a portrait-framed composition.
+const mobilePortrait =
+  window.matchMedia('(max-width: 1024px) and (orientation: portrait)').matches ||
+  window.matchMedia('(max-width: 767px)').matches;
+if (mobilePortrait) {
+  Object.assign(config, {
+    orbitX: 5, orbitY: 5, fov: 40, dist: 4,
+    offsetX: 0, offsetY: -0.55, pivot: 1,
+    fgDepth: 0.08, fgLift: 0, fgShape: 0.8,
+    handThresh: 0.855, handDepth: 0.4, handLift: 0.1,
+    gapSize: 0, rimLight: 0.6, smoothing: 0.06,
+  });
+}
+
 // Plane dimensions (set in buildMeshes) used for cover scaling
 let planeWidth = 0, planeHeight = 0;
 
 // Intro in-shader light sweep state. Pre-armed with t0=Infinity so the shader
 // holds the figure dark from the very first rendered frame, eliminating the
 // flash of full-colour before the rim sweep begins.
-const introFx = { active: true, mode: 1, t0: Infinity, dur: 1700 };
+const introFx = { active: true, mode: 1, t0: Infinity, dur: 900 };
 
 // ─── Scene Setup ───
 const container = document.getElementById('scene');
@@ -538,9 +553,9 @@ function makeDisplacementMaterial(colorTex, depthTex, isForeground) {
             float center = mix(1.2, -0.2, uFxT);
             float reveal = smoothstep(center - 0.06, center + 0.06, vUv.y);
             color.rgb *= mix(0.1, 1.0, reveal);   // start dark, fill to full colour
-            float rim = smoothstep(0.5, 0.0, vShape);
-            float band = smoothstep(0.34, 0.0, abs(vUv.y - center));
-            color.rgb += vec3(1.0, 0.95, 0.82) * rim * band * uFxAmt * 3.0;
+            float rim = smoothstep(0.25, 0.0, vShape);
+            float band = smoothstep(0.41, 0.0, abs(vUv.y - center));
+            color.rgb += vec3(1.0, 0.95, 0.82) * rim * band * uFxAmt * 0.75;
           } else {
             // Light sheen: a soft diagonal highlight sweeping left→right.
             float diag = vUv.x * 0.72 + (1.0 - vUv.y) * 0.28;
@@ -1133,7 +1148,7 @@ function revealFigure(mode) {
     introFx.mode = mode === 'rim' ? 1 : 2;
     // Rim doubles as a colour wipe, so start it with the figure (dark from frame one);
     // sheen is a later accent, so give it a beat.
-    introFx.dur = mode === 'rim' ? 1700 : 1500;
+    introFx.dur = mode === 'rim' ? 900 : 1500;
     introFx.t0 = performance.now() + (mode === 'rim' ? 0 : 550);
     introFx.active = true;
     needsRedraw = true;

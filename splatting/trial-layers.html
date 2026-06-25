@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Layered 3D photo — inpainted occlusions</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body, html {
+  margin: 0;
+  overflow: hidden;
+  background: #0a0a0c;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #ddd;
+}
+#scene { position: fixed; inset: 0; }
+#hud {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 10;
+  background: rgba(16,16,20,0.72);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  width: 250px;
+  font-size: 12px;
+}
+#hud label { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+#hud label span { width: 70px; flex: none; color: #999; }
+#hud input[type=range] { flex: 1; accent-color: #f4842a; }
+#status { color: #f4b27a; min-height: 15px; }
+button {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.07);
+  color: #eee;
+  font-size: 12px;
+  cursor: pointer;
+}
+button:hover { background: rgba(255,255,255,0.14); }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="hud">
+  <div id="status">loading scene…</div>
+  <label><span>depth</span><input id="depth" type="range" min="0" max="1.2" step="0.01" value="0.45"></label>
+  <label><span>shape</span><input id="shape" type="range" min="1" max="5" step="0.1" value="2.5"></label>
+  <label><span>gap cutoff</span><input id="cut" type="range" min="0.02" max="0.4" step="0.01" value="0.12"></label>
+  <button id="gyro" hidden>enable gyro</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const statusEl = document.getElementById('status');
+const setStatus = (t) => statusEl.textContent = t;
+
+const container = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const FOV = 38;
+const camera = new THREE.PerspectiveCamera(FOV, innerWidth / innerHeight, 0.01, 50);
+
+// shared across all layer materials so the sliders drive every layer at once
+const shared = {
+  uDepth: { value: parseFloat(document.getElementById('depth').value) },
+  uMid:   { value: 0.5 },
+  uCut:   { value: parseFloat(document.getElementById('cut').value) },
+  uShape: { value: parseFloat(document.getElementById('shape').value) },
+};
+
+// same displaced-grid shader as trial-splat's HD mesh, but per layer: alpha
+// masks the layer's own pixels, and the depth-discontinuity cut reveals the
+// inpainted layer behind instead of a hole
+function makeLayerMaterial(tex, dTex, texel, isBack, layerMid, relMin, relMax) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uDepth: shared.uDepth,
+      uMid:   shared.uMid,
+      uCut:   shared.uCut,
+      uShape: shared.uShape,
+      uTex:      { value: tex },
+      uDepthTex: { value: dTex },
+      uTexel:    { value: texel },
+      uIsBack:   { value: isBack ? 1 : 0 },
+      uLayerMid: { value: layerMid },
+      uRelMin:   { value: relMin },
+      uRelMax:   { value: relMax },
+    },
+    vertexShader: /* glsl */`
+      uniform sampler2D uDepthTex;
+      uniform float uDepth, uMid, uShape, uLayerMid, uRelMin, uRelMax;
+      uniform vec2 uTexel;
+      varying vec2 vUv;
+      varying float vEdge;
+      void main() {
+        vUv = uv;
+        float d = texture2D(uDepthTex, uv).r;
+        float dd = 0.0;
+        dd = max(dd, abs(d - texture2D(uDepthTex, uv + vec2(uTexel.x, 0.0)).r));
+        dd = max(dd, abs(d - texture2D(uDepthTex, uv - vec2(uTexel.x, 0.0)).r));
+        dd = max(dd, abs(d - texture2D(uDepthTex, uv + vec2(0.0, uTexel.y)).r));
+        dd = max(dd, abs(d - texture2D(uDepthTex, uv - vec2(0.0, uTexel.y)).r));
+        vEdge = dd;
+        // amplify only the low-frequency depth (mip-blurred): the broad shape
+        // rounds out, while silhouette noise and edge cliffs stay at 1x and
+        // can't serrate the rim when shape is cranked up
+        float ds = textureLod(uDepthTex, uv, 3.5).r;
+        float rel = (ds - uLayerMid) * uShape + (d - ds);
+        // clamp relief inside this layer's depth band: amplified shape must
+        // never push a layer through the layer in front of (or behind) it
+        rel = clamp(rel, uRelMin, uRelMax);
+        float z = (uLayerMid - uMid) * uDepth + rel * uDepth;
+        vec3 p = position + vec3(0.0, 0.0, z);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }`,
+    fragmentShader: /* glsl */`
+      uniform sampler2D uTex;
+      uniform float uCut, uDepth, uIsBack;
+      varying vec2 vUv;
+      varying float vEdge;
+      void main() {
+        vec4 c = texture2D(uTex, vUv);
+        // antialiased silhouette: coverage ramps across one screen pixel
+        float w = max(fwidth(c.a), 1e-4);
+        float cov = smoothstep(0.5 - w, 0.5 + w, c.a);
+        // depth-discontinuity cut, also softened (back plate is never cut)
+        if (uIsBack < 0.5) {
+          float edge = vEdge * min(uDepth / 0.3, 1.0);
+          cov *= 1.0 - smoothstep(uCut * 0.7, uCut, edge);
+        }
+        if (cov < 0.01) discard;
+        gl_FragColor = vec4(c.rgb, cov);
+      }`,
+    alphaToCoverage: true, // MSAA-dithered edges, no blend-sorting needed
+  });
+}
+
+let planeW = 2, planeH = 2;
+let baseDist = 4;
+function fitCamera() {
+  const t = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+  baseDist = Math.max(planeH / 2 / t, planeW / 2 / (t * camera.aspect)) * 1.02;
+}
+
+const sceneName = new URLSearchParams(location.search).get('scene') || 'foreground_scene';
+const loader = new THREE.TextureLoader();
+const loadTex = (url) => new Promise((res, rej) => loader.load(url, res, undefined, rej));
+
+async function loadScene() {
+  let meta;
+  try {
+    meta = await (await fetch(`${sceneName}/meta.json`)).json();
+  } catch {
+    setStatus(`no scene "${sceneName}" — run: .venv/bin/python inpaint.py <image>`);
+    return;
+  }
+  shared.uMid.value = meta.mid;
+  planeH = 2.0;
+  planeW = planeH * (meta.width / meta.height);
+
+  const gw = Math.min(768, meta.width);
+  const gh = Math.round(gw * meta.height / meta.width);
+  const texel = new THREE.Vector2(1 / gw, 1 / gh);
+
+  const mids = meta.layers.map((l) => l.mid ?? meta.mid);
+  for (let i = 0; i < meta.layers.length; i++) {
+    const [tex, dTex] = await Promise.all([
+      loadTex(`${sceneName}/${meta.layers[i].image}`),
+      loadTex(`${sceneName}/${meta.layers[i].depth}`),
+    ]);
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    // depth tex keeps mipmaps: the shader reads a high mip as smoothed depth
+    const geo = new THREE.PlaneGeometry(planeW, planeH, gw - 1, gh - 1);
+    // relief stays within 45% of the gap to each neighbouring layer — under
+    // half from both sides, so amplified layers can never meet in the middle
+    const relMin = (i > 0 ? mids[i - 1] - mids[i] : -mids[i]) * 0.45;
+    const relMax = (i < mids.length - 1 ? mids[i + 1] - mids[i] : 1.05 - mids[i]) * 0.45;
+    const mesh = new THREE.Mesh(geo, makeLayerMaterial(tex, dTex, texel, i === 0,
+      mids[i], relMin, relMax));
+    mesh.renderOrder = i;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+  }
+  fitCamera();
+  setStatus(`${meta.layers.length} inpainted layers — move / drag to look around`);
+}
+
+// ─── camera rig: pointer parallax + drag orbit + optional gyro ───
+let yaw = 0, pitch = 0, tYaw = 0, tPitch = 0;
+let dragYaw = 0, dragPitch = 0;
+let dragging = false, lastX = 0, lastY = 0;
+
+addEventListener('pointermove', (e) => {
+  if (dragging) {
+    dragYaw   = THREE.MathUtils.clamp(dragYaw   + (e.clientX - lastX) * 0.004, -0.5, 0.5);
+    dragPitch = THREE.MathUtils.clamp(dragPitch + (e.clientY - lastY) * 0.004, -0.4, 0.4);
+    lastX = e.clientX; lastY = e.clientY;
+  } else {
+    tYaw   = -(e.clientX / innerWidth  - 0.5) * 0.22;
+    tPitch =  (e.clientY / innerHeight - 0.5) * 0.16;
+  }
+});
+addEventListener('pointerdown', (e) => {
+  if (e.target.closest('#hud')) return;
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+});
+addEventListener('pointerup', () => dragging = false);
+
+const gyroBtn = document.getElementById('gyro');
+if ('ontouchstart' in window) gyroBtn.hidden = false;
+gyroBtn.addEventListener('click', async () => {
+  if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+    if (await DeviceOrientationEvent.requestPermission() !== 'granted') return;
+  }
+  let baseBeta = null, baseGamma = null;
+  addEventListener('deviceorientation', (e) => {
+    if (e.beta == null) return;
+    if (baseBeta === null) { baseBeta = e.beta; baseGamma = e.gamma; }
+    tYaw   = THREE.MathUtils.clamp(-(e.gamma - baseGamma) * 0.012, -0.3, 0.3);
+    tPitch = THREE.MathUtils.clamp( (e.beta  - baseBeta)  * 0.012, -0.25, 0.25);
+  });
+  gyroBtn.hidden = true;
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  yaw   += (tYaw + dragYaw - yaw) * 0.06;
+  pitch += (tPitch + dragPitch - pitch) * 0.06;
+  camera.position.set(
+    baseDist * Math.sin(yaw) * Math.cos(pitch),
+    baseDist * Math.sin(pitch),
+    baseDist * Math.cos(yaw) * Math.cos(pitch)
+  );
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  fitCamera();
+});
+
+document.getElementById('depth').addEventListener('input', (e) => shared.uDepth.value = +e.target.value);
+document.getElementById('shape').addEventListener('input', (e) => shared.uShape.value = +e.target.value);
+document.getElementById('cut').addEventListener('input', (e) => shared.uCut.value = +e.target.value);
+
+loadScene();
+</script>
+</body>
+</html>

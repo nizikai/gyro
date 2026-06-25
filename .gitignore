@@ -6,3 +6,9 @@ models/checkpoints/big-lama/models/*
 # Ignore git submodules
 models/ml-depth-pro
 models/assets/lama
+# Local model weights for the splatting inpaint pipeline
+splatting/models/
+# Python virtualenvs
+splatting/.venv/
+# Node dependencies
+node_modules/

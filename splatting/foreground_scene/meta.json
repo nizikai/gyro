@@ -1,0 +1,22 @@
+{
+  "width": 1000,
+  "height": 1000,
+  "mid": 0.2617872953414917,
+  "layers": [
+    {
+      "image": "layer0.png",
+      "depth": "depth0.png",
+      "mid": 0.11337935924530029
+    },
+    {
+      "image": "layer1.png",
+      "depth": "depth1.png",
+      "mid": 0.4076385200023651
+    },
+    {
+      "image": "layer2.png",
+      "depth": "depth2.png",
+      "mid": 0.8229632377624512
+    }
+  ]
+}
